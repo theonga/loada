@@ -1,0 +1,247 @@
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+model User {
+  id                String          @id @default(uuid())
+  phone             String          @unique
+  name              String
+  role              UserRole
+  profilePhotoUrl   String?
+  fcmToken          String?
+  isVerified        Boolean         @default(false)
+  isSuspended       Boolean         @default(false)
+  suspensionReason  String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  shipperProfile    ShipperProfile?
+  driverProfile     DriverProfile?
+  sentMessages      Message[]       @relation("SentMessages")
+  ratingsGiven      Rating[]        @relation("RatingsGiven")
+  ratingsReceived   Rating[]        @relation("RatingsReceived")
+}
+
+model ShipperProfile {
+  id          String  @id @default(uuid())
+  userId      String  @unique
+  companyName String?
+  user        User    @relation(fields: [userId], references: [id])
+  jobs        Job[]
+}
+
+model DriverProfile {
+  id                   String             @id @default(uuid())
+  userId               String             @unique
+  capacityTonnes       Int
+  truckRegistration    String
+  truckMake            String
+  truckModel           String
+  truckYear            Int
+  truckPhotoUrl        String?
+  licenceUrl           String?
+  licenceExpiry        DateTime?
+  registrationUrl      String?
+  registrationExpiry   DateTime?
+  documentStatus       DocumentStatus     @default(PENDING)
+  isOnline             Boolean            @default(false)
+  lastLocationLat      Float?
+  lastLocationLng      Float?
+  lastLocationAt       DateTime?
+  user                 User               @relation(fields: [userId], references: [id])
+  subscription         Subscription?
+  bids                 Bid[]
+}
+
+model Job {
+  id                  String          @id @default(uuid())
+  shipperId           String
+  shipper             ShipperProfile  @relation(fields: [shipperId], references: [id])
+  originAddress       String
+  originLat           Float
+  originLng           Float
+  destAddress         String
+  destLat             Float
+  destLng             Float
+  cargoDescription    String
+  requiredTonnes      Int
+  specialRequirements String[]
+  askingPrice         Decimal         @db.Decimal(10, 2)
+  currency            String          @default("USD")
+  status              JobStatus       @default(POSTED)
+  searchRadiusKm      Int             @default(25)
+  biddingExpiresAt    DateTime?
+  matchedDriverId     String?
+  matchedBidId        String?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  bids                Bid[]
+  delivery            Delivery?
+  messages            Message[]
+  ratings             Rating[]
+}
+
+model Bid {
+  id            String        @id @default(uuid())
+  jobId         String
+  driverId      String
+  offeredPrice  Decimal       @db.Decimal(10, 2)
+  currency      String        @default("USD")
+  status        BidStatus     @default(PENDING)
+  note          String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  job           Job           @relation(fields: [jobId], references: [id])
+  driver        DriverProfile @relation(fields: [driverId], references: [id])
+}
+
+model Delivery {
+  id                  String    @id @default(uuid())
+  jobId               String    @unique
+  job                 Job       @relation(fields: [jobId], references: [id])
+  pickupConfirmedAt   DateTime?
+  pickupPhotoUrl      String?
+  deliveredAt         DateTime?
+  deliveryPhotoUrl    String?
+  recipientName       String?
+  signatureUrl        String?
+  pickupLat           Float?
+  pickupLng           Float?
+  deliveryLat         Float?
+  deliveryLng         Float?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model Subscription {
+  id                String               @id @default(uuid())
+  driverId          String               @unique
+  driver            DriverProfile        @relation(fields: [driverId], references: [id])
+  plan              SubscriptionPlan
+  status            SubscriptionStatus
+  currentPeriodEnd  DateTime
+  paynowReference   String?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+  payments          SubscriptionPayment[]
+}
+
+model SubscriptionPayment {
+  id              String        @id @default(uuid())
+  subscriptionId  String
+  subscription    Subscription  @relation(fields: [subscriptionId], references: [id])
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("USD")
+  paynowRef       String?
+  status          PaymentStatus
+  paidAt          DateTime?
+  createdAt       DateTime      @default(now())
+}
+
+model Message {
+  id          String    @id @default(uuid())
+  jobId       String
+  senderId    String
+  content     String?
+  mediaUrl    String?
+  mediaType   String?
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  job         Job       @relation(fields: [jobId], references: [id])
+  sender      User      @relation("SentMessages", fields: [senderId], references: [id])
+}
+
+model Rating {
+  id         String   @id @default(uuid())
+  jobId      String
+  fromUserId String
+  toUserId   String
+  score      Int
+  comment    String?
+  tags       String[]
+  createdAt  DateTime @default(now())
+  job        Job      @relation(fields: [jobId], references: [id])
+  fromUser   User     @relation("RatingsGiven", fields: [fromUserId], references: [id])
+  toUser     User     @relation("RatingsReceived", fields: [toUserId], references: [id])
+}
+
+enum UserRole {
+  SHIPPER
+  DRIVER
+  BOTH
+}
+
+enum DocumentStatus {
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum JobStatus {
+  DRAFT
+  POSTED
+  BIDDING
+  RADIUS_EXPANDED
+  MATCHED
+  PICKUP_EN_ROUTE
+  PICKUP_ARRIVED
+  LOADED
+  IN_TRANSIT
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum BidStatus {
+  PENDING
+  COUNTERED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum SubscriptionPlan {
+  WEEKLY
+  MONTHLY
+  ANNUAL
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+model AppConfig {
+  key       String   @id
+  value     String
+  label     String
+  group     String
+  updatedAt DateTime @updatedAt
+  updatedBy String?
+}
+
+model Admin {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}

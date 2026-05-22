@@ -1,0 +1,23 @@
+{
+  "name": "loada",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api":     "npm run dev   --workspace=apps/api",
+    "dev:admin":   "npm run dev   --workspace=apps/admin",
+    "dev:mobile":  "npm run start --workspace=apps/mobile",
+    "build:api":   "npm run build --workspace=apps/api",
+    "build:admin": "npm run build --workspace=apps/admin",
+    "db:seed":     "npm run db:seed --workspace=apps/api",
+    "db:push":     "npm run db:push --workspace=apps/api"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0"
+  }
+}
