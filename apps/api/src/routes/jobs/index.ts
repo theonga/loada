@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 import { requireAuth, requireDriver, requireShipper } from "@/middleware/auth";
 import { createJobSchema, jobsQuerySchema, marketRefQuerySchema, jobStatusUpdateSchema } from "@/schemas/job.schema";
 import { createJob, getAvailableLoads, getJobById, cancelJob, getShipperJobs, transitionJobStatus } from "@/services/job.service";
@@ -12,6 +12,36 @@ function getUser(req: object): AuthUser {
 }
 
 export async function jobRoutes(app: FastifyInstance) {
+  // Coordinate-based market reference — used by the post-load pricing screen
+  // before a job ID exists. Must be registered before /:jobId routes.
+  const coordMarketRefSchema = z.object({
+    originLat: z.coerce.number(),
+    originLng: z.coerce.number(),
+    destLat: z.coerce.number(),
+    destLng: z.coerce.number(),
+    tonnes: z.coerce.number().int().positive(),
+  });
+
+  app.get("/market-reference", { preHandler: [requireAuth] }, async (req, reply) => {
+    try {
+      const query = coordMarketRefSchema.parse(req.query);
+      const marketReference = await getMarketReference(
+        query.originLat,
+        query.originLng,
+        query.destLat,
+        query.destLng,
+        query.tonnes,
+      );
+      return reply.send({ success: true, data: { marketReference } });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
+      }
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
+    }
+  });
+
   app.post("/", { preHandler: [requireShipper] }, async (req, reply) => {
     try {
       const body = createJobSchema.parse(req.body);

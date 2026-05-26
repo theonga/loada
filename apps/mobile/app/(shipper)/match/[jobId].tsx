@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Pressable, StyleSheet, Animated } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,28 +7,54 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { Avatar } from '@components/ui/Avatar';
 import { Stars } from '@components/ui/Stars';
-import { MOCK_DRIVERS, MOCK_JOBS } from '@services/mock/data';
+import { Skeleton } from '@components/ui/Skeleton';
+import { getJobById, getDriverProfile, getJobBids } from '@services';
+import type { Job, DriverProfile, Bid } from '@/types';
 
 export default function ShipperMatchConfirmedScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
   const flash = useRef(new Animated.Value(0.8)).current;
-  const job = MOCK_JOBS.find((j) => j.id === jobId) ?? MOCK_JOBS[1];
-  const driver = MOCK_DRIVERS[1];
+  const [job, setJob] = useState<Job | null>(null);
+  const [driver, setDriver] = useState<DriverProfile | null>(null);
+  const [acceptedBid, setAcceptedBid] = useState<Bid | null>(null);
+  const [loading, setLoading] = useState(true);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
   useEffect(() => {
-    Animated.timing(flash, {
-      toValue: 0,
-      duration: 600,
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(flash, { toValue: 0, duration: 600, useNativeDriver: true }).start();
   }, []);
+
+  useEffect(() => {
+    if (!jobId) return;
+    Promise.all([getJobById(jobId), getJobBids(jobId)])
+      .then(([j, bids]) => {
+        setJob(j);
+        const matched = bids.find((b) => b.status === 'ACCEPTED');
+        setAcceptedBid(matched ?? null);
+        if (j.matchedDriverId) {
+          return getDriverProfile(j.matchedDriverId).then(setDriver);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={{ padding: Spacing.screenH, gap: Spacing.gap, alignItems: 'center', marginTop: 48 }}>
+          <Skeleton width={64} height={64} borderRadius={32} />
+          <Skeleton width={160} height={20} borderRadius={4} />
+          <Skeleton width="100%" height={120} borderRadius={12} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Amber flash overlay */}
       <Animated.View
         style={[styles.flashOverlay, { opacity: flash }]}
         pointerEvents="none"
@@ -42,22 +68,33 @@ export default function ShipperMatchConfirmedScreen() {
         <Text style={styles.heading}>You've got a driver!</Text>
 
         <View style={styles.driverCard}>
-          <Avatar name={driver.name} size={64} />
-          <Text style={styles.driverName}>{driver.name}</Text>
-          <Stars rating={driver.rating} count={driver.reviewCount} size={14} />
-          <Text style={styles.truckInfo}>{driver.truckMake} {driver.truckModel} · {driver.capacityTonnes}t</Text>
+          {driver ? (
+            <>
+              <Avatar name={driver.name} size={64} />
+              <Text style={styles.driverName}>{driver.name}</Text>
+              <Stars rating={driver.rating} count={driver.reviewCount} size={14} />
+              <Text style={styles.truckInfo}>{driver.truckMake} {driver.truckModel} · {driver.capacityTonnes}t</Text>
+            </>
+          ) : (
+            <>
+              <Skeleton width={64} height={64} borderRadius={32} />
+              <Skeleton width={120} height={18} borderRadius={4} />
+            </>
+          )}
         </View>
 
         <View style={styles.detailsCard}>
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Agreed price</Text>
-            <Text style={styles.detailPrice}>$460</Text>
+            <Text style={styles.detailPrice}>
+              ${acceptedBid ? acceptedBid.offeredPrice : job?.askingPrice ?? '—'}
+            </Text>
           </View>
           <View style={styles.detailDivider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Route</Text>
             <Text style={styles.detailValue}>
-              {job.originAddress.split(',')[0]} → {job.destAddress.split(',')[0]}
+              {job ? `${job.originAddress.split(',')[0]} → ${job.destAddress.split(',')[0]}` : '—'}
             </Text>
           </View>
           <View style={styles.detailDivider} />
@@ -72,13 +109,13 @@ export default function ShipperMatchConfirmedScreen() {
         <View style={styles.actions}>
           <Pressable
             style={styles.btnPrimary}
-            onPress={() => router.replace(`/(shipper)/tracking/${job.id}`)}
+            onPress={() => job && router.replace(`/(shipper)/tracking/${job.id}`)}
           >
             <Text style={styles.btnPrimaryText}>Track driver</Text>
           </Pressable>
           <Pressable
             style={styles.btnGhost}
-            onPress={() => router.push(`/(shared)/chat/${job.id}`)}
+            onPress={() => job && router.push(`/(shared)/chat/${job.id}`)}
           >
             <Text style={styles.btnGhostText}>Message driver</Text>
           </Pressable>

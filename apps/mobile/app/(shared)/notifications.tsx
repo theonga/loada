@@ -5,7 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
-import { getNotifications } from '@services/mock';
+import { getNotifications } from '@services';
+import { useAuthStore } from '@store/auth.store';
 import type { AppNotification } from '@/types';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -29,6 +30,7 @@ function timeAgo(iso: string): string {
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const user = useAuthStore((s) => s.user);
   const [notifs, setNotifs] = useState<AppNotification[]>([]);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
@@ -43,8 +45,8 @@ export default function NotificationsScreen() {
   }), [C]);
 
   useEffect(() => {
-    getNotifications('shipper-001').then(setNotifs);
-  }, []);
+    getNotifications(user?.id ?? '').then(setNotifs).catch(() => {});
+  }, [user?.id]);
 
   return (
     <SafeAreaView style={styles.container}>

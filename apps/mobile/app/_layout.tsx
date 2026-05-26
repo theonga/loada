@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack, useRouter, useSegments, useRootNavigationState } from 'expo-router';
@@ -14,43 +14,45 @@ import {
   SourceSans3_700Bold,
 } from '@expo-google-fonts/source-sans-3';
 import { useAuthStore } from '@store/auth.store';
-import { MOCK_SHIPPER } from '@services/mock/data';
+import { disconnectAll } from '@services/socket';
 import { DevPanel } from '@components/dev/DevPanel';
+import { usePushToken } from '@hooks/usePushToken';
+import { AppAlertHost } from '@components/ui/AppAlert';
 
 SplashScreen.preventAutoHideAsync();
 
-function useDevModeAuth() {
-  const { setUser, setRole, isAuthenticated } = useAuthStore();
-  useEffect(() => {
-    if (__DEV__ && !isAuthenticated) {
-      setUser(MOCK_SHIPPER);
-      setRole('shipper');
-    }
-  }, []);
-}
-
 function RootLayoutNav() {
-  const { isAuthenticated, role } = useAuthStore();
+  const { isAuthenticated, role, hydrate } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
   const navigationState = useRootNavigationState();
+  const [hydrated, setHydrated] = useState(false);
 
-  useDevModeAuth();
+  usePushToken((type, jobId) => {
+    if (type === 'bid_received') router.push(`/(shipper)/bids/${jobId}`);
+    else if (type === 'matched') router.push(role === 'driver' ? `/(driver)/match/${jobId}` : `/(shipper)/match/${jobId}`);
+    else if (type === 'chat_message') router.push(`/(shared)/chat/${jobId}`);
+  });
 
   useEffect(() => {
+    hydrate().then(() => setHydrated(true));
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
     if (!navigationState?.key) return;
 
     const inAuthGroup = segments[0] === '(auth)';
+    // Allow authenticated users to complete onboarding screens before being redirected
+    const inOnboarding = inAuthGroup && (segments[1] === 'driver-setup' || segments[1] === 'name');
+
     if (!isAuthenticated && !inAuthGroup) {
+      disconnectAll();
       router.replace('/(auth)');
-    } else if (isAuthenticated && inAuthGroup) {
-      if (role === 'driver') {
-        router.replace('/(driver)');
-      } else {
-        router.replace('/(shipper)');
-      }
+    } else if (isAuthenticated && inAuthGroup && !inOnboarding) {
+      router.replace(role === 'driver' ? '/(driver)' : '/(shipper)');
     }
-  }, [isAuthenticated, role, segments, navigationState?.key]);
+  }, [isAuthenticated, role, segments, navigationState?.key, hydrated]);
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
@@ -86,6 +88,7 @@ export default function RootLayout() {
         <View style={styles.root}>
           <RootLayoutNav />
           <DevPanel />
+          <AppAlertHost />
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

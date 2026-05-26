@@ -1,27 +1,43 @@
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Pressable, StyleSheet, Animated } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
-import { MOCK_JOBS, MOCK_SHIPPER } from '@services/mock/data';
+import { Skeleton } from '@components/ui/Skeleton';
+import { getJobById } from '@services';
+import type { Job } from '@/types';
 
 export default function DriverMatchConfirmedScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
   const flash = useRef(new Animated.Value(0.8)).current;
-  const job = MOCK_JOBS.find((j) => j.id === jobId) ?? MOCK_JOBS[0];
+  const [job, setJob] = useState<Job | null>(null);
+  const [loading, setLoading] = useState(true);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
   useEffect(() => {
-    Animated.timing(flash, {
-      toValue: 0,
-      duration: 600,
-      useNativeDriver: true,
-    }).start();
+    Animated.timing(flash, { toValue: 0, duration: 600, useNativeDriver: true }).start();
   }, []);
+
+  useEffect(() => {
+    if (!jobId) return;
+    getJobById(jobId)
+      .then((j) => { setJob(j); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={{ padding: Spacing.screenH, gap: Spacing.gap }}>
+          <Skeleton width="100%" height={240} borderRadius={12} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -38,30 +54,38 @@ export default function DriverMatchConfirmedScreen() {
         <Text style={styles.heading}>You're on!</Text>
 
         <View style={styles.detailCard}>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Shipper</Text>
-            <Text style={styles.detailValue}>{MOCK_SHIPPER.name}</Text>
-          </View>
-          <View style={styles.divider} />
+          {job?.shipperName ? (
+            <>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Shipper</Text>
+                <Text style={styles.detailValue}>{job.shipperName}</Text>
+              </View>
+              <View style={styles.divider} />
+            </>
+          ) : null}
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Pickup</Text>
-            <Text style={styles.detailValue}>{job.originAddress}</Text>
+            <Text style={styles.detailValue}>{job?.originAddress ?? '—'}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Destination</Text>
-            <Text style={styles.detailValue}>{job.destAddress}</Text>
+            <Text style={styles.detailValue}>{job?.destAddress ?? '—'}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Agreed price</Text>
-            <Text style={styles.priceValue}>${job.askingPrice}</Text>
+            <Text style={styles.priceValue}>${job?.askingPrice ?? '—'}</Text>
           </View>
-          <View style={styles.divider} />
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Distance</Text>
-            <Text style={styles.detailValue}>{job.distanceKm} km</Text>
-          </View>
+          {job?.distanceKm ? (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Distance</Text>
+                <Text style={styles.detailValue}>{job.distanceKm} km</Text>
+              </View>
+            </>
+          ) : null}
         </View>
 
         <View style={styles.spacer} />
@@ -72,12 +96,14 @@ export default function DriverMatchConfirmedScreen() {
         >
           <Text style={styles.btnText}>Navigate to pickup</Text>
         </Pressable>
-        <Pressable
-          style={styles.ghostBtn}
-          onPress={() => router.push(`/(shared)/chat/${job.id}`)}
-        >
-          <Text style={styles.ghostBtnText}>Message shipper</Text>
-        </Pressable>
+        {job && (
+          <Pressable
+            style={styles.ghostBtn}
+            onPress={() => router.push(`/(shared)/chat/${job.id}`)}
+          >
+            <Text style={styles.ghostBtnText}>Message shipper</Text>
+          </Pressable>
+        )}
       </View>
     </SafeAreaView>
   );

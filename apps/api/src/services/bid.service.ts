@@ -3,7 +3,7 @@ import { redis } from "@/lib/redis";
 import { getSocketServer } from "@/lib/socket";
 import { notifyDriver, notifyShipper } from "./notification.service";
 import { transitionJobStatus } from "./job.service";
-import { sendSMS } from "@/lib/bulkit";
+import { smsMatchConfirmedDriver } from "@/lib/bulkit";
 import { getConfigNum } from "@/lib/app-config";
 
 export async function placeBid(jobId: string, driverId: string, offeredPrice: number) {
@@ -133,10 +133,7 @@ export async function acceptBid(bidId: string, shipperUserId: string) {
     { jobId: bid.jobId },
   );
 
-  await sendSMS(
-    bid.driver.user.phone,
-    `Loada: You got the load! Pickup at ${bid.job.originAddress}. Open the app for details.`,
-  );
+  await smsMatchConfirmedDriver(bid.driver.user.phone, bid.job.originAddress);
 
   return updatedJob;
 }

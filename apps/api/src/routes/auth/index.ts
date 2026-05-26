@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { ZodError } from "zod";
-import { sendOTPSchema, verifyOTPSchema } from "@/schemas/auth.schema";
+import { sendOTPSchema, verifyOTPSchema, updateProfileSchema } from "@/schemas/auth.schema";
 import {
   generateAndSendOTP,
   verifyOTPAndLogin,
   verifyAndRotateRefreshToken,
   logout,
+  updateUserProfile,
 } from "@/services/auth.service";
 import { requireAuth } from "@/middleware/auth";
 
@@ -13,8 +14,10 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/send-otp", async (req, reply) => {
     try {
       const { phone } = sendOTPSchema.parse(req.body);
-      await generateAndSendOTP(phone);
-      return reply.send({ success: true, data: { message: "OTP sent" } });
+      const devOtp = await generateAndSendOTP(phone);
+      const data: Record<string, string> = { message: "OTP sent" };
+      if (devOtp) data["devOtp"] = devOtp;
+      return reply.send({ success: true, data });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
@@ -26,7 +29,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/verify-otp", async (req, reply) => {
     try {
       const { phone, code, role } = verifyOTPSchema.parse(req.body);
-      const { user, accessToken: rawPayload, refreshToken } = await verifyOTPAndLogin(phone, code, role);
+      const { user, accessToken: rawPayload, refreshToken, isNewUser } = await verifyOTPAndLogin(phone, code, role);
 
       const payload = JSON.parse(rawPayload) as { userId: string; role: string };
       const accessToken = app.jwt.sign(payload, { expiresIn: "15m" });
@@ -35,7 +38,7 @@ export async function authRoutes(app: FastifyInstance) {
       reply.setCookie("refreshToken", refreshJwt, { httpOnly: true, path: "/v1/auth/refresh", sameSite: "strict" });
       reply.setCookie("rt", refreshToken, { httpOnly: true, path: "/", sameSite: "strict" });
 
-      return reply.send({ success: true, data: { user, accessToken, refreshToken } });
+      return reply.send({ success: true, data: { user, accessToken, refreshToken, isNewUser } });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
@@ -69,5 +72,20 @@ export async function authRoutes(app: FastifyInstance) {
     reply.clearCookie("refreshToken");
     reply.clearCookie("rt");
     return reply.send({ success: true, data: null });
+  });
+
+  app.patch("/me", { preHandler: [requireAuth] }, async (req, reply) => {
+    try {
+      const { name } = updateProfileSchema.parse(req.body);
+      const user = (req as unknown as Record<string, { id: string }>)["authUser"];
+      await updateUserProfile(user.id, name);
+      return reply.send({ success: true, data: { name } });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: err.issues[0]?.message ?? "Invalid input" } });
+      }
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
+    }
   });
 }

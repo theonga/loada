@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { useAuthStore } from '@store/auth.store';
+import { showConfirm } from '@components/ui/AppAlert';
 
 const LANGUAGES = ['English', 'Shona', 'Ndebele'];
 
@@ -67,11 +68,29 @@ export default function SettingsScreen() {
 
         <Text style={styles.sectionTitle}>ACCOUNT</Text>
         <View style={styles.card}>
-          <Pressable style={styles.settingRowBtn} onPress={() => { logout(); router.replace('/(auth)'); }}>
+          <Pressable
+            style={styles.settingRowBtn}
+            onPress={() => showConfirm({
+              title: 'Sign out?',
+              message: 'You can sign back in at any time.',
+              confirmLabel: 'Sign out',
+              destructive: true,
+              onConfirm: () => { logout(); router.replace('/(auth)'); },
+            })}
+          >
             <Text style={styles.logoutText}>Sign out</Text>
           </Pressable>
           <View style={styles.divider} />
-          <Pressable style={styles.settingRowBtn}>
+          <Pressable
+            style={styles.settingRowBtn}
+            onPress={() => showConfirm({
+              title: 'Delete account?',
+              message: 'All your data will be permanently removed. This cannot be undone.',
+              confirmLabel: 'Delete account',
+              destructive: true,
+              onConfirm: () => { logout(); router.replace('/(auth)'); },
+            })}
+          >
             <Text style={styles.deleteText}>Delete account</Text>
           </Pressable>
         </View>

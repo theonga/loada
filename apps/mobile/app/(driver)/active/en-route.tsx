@@ -7,19 +7,41 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
-import { MOCK_JOBS } from '@services/mock/data';
+import { useJobStore } from '@store/job.store';
+import { useLocationStore } from '@store/location.store';
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 export default function EnRouteScreen() {
   const router = useRouter();
-  const job = MOCK_JOBS[1];
+  const job = useJobStore((s) => s.activeJob);
+  const driverLoc = useLocationStore((s) => s.driverLocation);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  const distanceKm =
+    driverLoc && job
+      ? haversineKm(driverLoc.lat, driverLoc.lng, job.originLat, job.originLng)
+      : null;
+  const etaMin = distanceKm != null ? Math.round((distanceKm / 50) * 60) : null;
 
   return (
     <View style={styles.container}>
       <View style={styles.mapContainer}>
-        <MapBg>
-          <View style={styles.pinMe}><MapPin kind="me" /></View>
+        <MapBg
+          initialRegion={driverLoc && job ? {
+            latitude: (driverLoc.lat + job.originLat) / 2,
+            longitude: (driverLoc.lng + job.originLng) / 2,
+            latitudeDelta: Math.abs(driverLoc.lat - job.originLat) + 0.02,
+            longitudeDelta: Math.abs(driverLoc.lng - job.originLng) + 0.02,
+          } : undefined}
+        >
           <View style={styles.pinDest}><MapPin kind="origin" label="Pickup" /></View>
         </MapBg>
       </View>
@@ -30,7 +52,7 @@ export default function EnRouteScreen() {
             <View style={[styles.statusDot, { backgroundColor: C.status.amber }]} />
             <Text style={styles.statusText}>En route to pickup</Text>
           </View>
-          <Pressable style={styles.chatBtn} onPress={() => router.push(`/(shared)/chat/${job.id}`)}>
+          <Pressable style={styles.chatBtn} onPress={() => job && router.push(`/(shared)/chat/${job.id}`)}>
             <Ionicons name="chatbubble-outline" size={22} color={C.text.primary} />
           </Pressable>
         </View>
@@ -39,15 +61,19 @@ export default function EnRouteScreen() {
 
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.destination}>{job.originAddress}</Text>
+          <Text style={styles.destination}>{job?.originAddress ?? '—'}</Text>
           <View style={styles.etaRow}>
             <View style={styles.etaItem}>
-              <Text style={styles.etaValue}>12 min</Text>
+              <Text style={styles.etaValue}>
+                {etaMin != null ? `${etaMin} min` : '—'}
+              </Text>
               <Text style={styles.etaLabel}>ETA</Text>
             </View>
             <View style={styles.etaDivider} />
             <View style={styles.etaItem}>
-              <Text style={styles.etaValue}>4.3 km</Text>
+              <Text style={styles.etaValue}>
+                {distanceKm != null ? `${distanceKm.toFixed(1)} km` : '—'}
+              </Text>
               <Text style={styles.etaLabel}>Distance</Text>
             </View>
           </View>

@@ -18,6 +18,8 @@ import { driverRoutes } from "@/routes/drivers";
 import { notificationRoutes } from "@/routes/notifications";
 import { smsRoutes } from "@/routes/sms";
 import { adminRoutes } from "@/routes/admin";
+import { uploadRoutes } from "@/routes/uploads";
+import { placesRoutes } from "@/routes/places";
 
 export async function buildApp() {
   const app = Fastify({
@@ -64,6 +66,8 @@ export async function buildApp() {
   await app.register(notificationRoutes, { prefix: "/v1/notifications" });
   await app.register(smsRoutes, { prefix: "/v1/sms" });
   await app.register(adminRoutes, { prefix: "/v1/admin" });
+  await app.register(uploadRoutes, { prefix: "/v1/uploads" });
+  await app.register(placesRoutes, { prefix: "/v1/places" });
 
   app.get("/health", async () => ({
     status: "ok",

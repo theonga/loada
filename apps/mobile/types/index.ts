@@ -92,6 +92,18 @@ export interface Message {
   createdAt: string;
 }
 
+export interface Delivery {
+  id: string;
+  jobId: string;
+  pickupConfirmedAt?: string;
+  pickupPhotoUrl?: string;
+  deliveredAt?: string;
+  deliveryPhotoUrl?: string;
+  recipientName?: string;
+  signatureUrl?: string;
+  createdAt: string;
+}
+
 export interface Rating {
   id: string;
   jobId: string;

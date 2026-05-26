@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import {
+  View, Pressable, ScrollView, StyleSheet,
+  ActivityIndicator,
+} from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -8,44 +11,167 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { BidCard } from '@components/ui/BidCard';
 import { CountdownBar } from '@components/ui/CountdownBar';
 import { Pill } from '@components/ui/Pill';
-import { MOCK_BIDS, MOCK_JOBS } from '@services/mock/data';
+import { Skeleton } from '@components/ui/Skeleton';
+import { getJobById, getJobBids, acceptBid, cancelJob } from '@services';
+import { showError, showConfirm } from '@components/ui/AppAlert';
+import { useJobStore } from '@store/job.store';
+import { useLiveBids } from '@hooks/useLiveBids';
+import type { Job, Bid } from '@/types';
 
 export default function BidInboxScreen() {
   const router = useRouter();
-  const { jobId } = useLocalSearchParams<{ jobId: string }>();
+  const params = useLocalSearchParams<{ jobId: string }>();
+  const jobId = Array.isArray(params.jobId) ? params.jobId[0] : params.jobId;
+
   const [view, setView] = useState<'list' | 'terminal'>('list');
-  const job = MOCK_JOBS.find((j) => j.id === jobId) ?? MOCK_JOBS[0];
-  const bids = MOCK_BIDS.filter((b) => b.jobId === job.id);
-  const expiresAt = job.biddingExpiresAt ? new Date(job.biddingExpiresAt) : new Date(Date.now() + 5 * 60000);
+  const [job, setJob] = useState<Job | null>(null);
+  const [bids, setBids] = useState<Bid[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [cancelling, setCancelling] = useState(false);
+  const [radiusExpanded, setRadiusExpanded] = useState(false);
+  const setActiveJob = useJobStore((s) => s.setActiveJob);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  const handleAccept = (bidId: string) => {
-    router.push(`/(shipper)/match/${job.id}`);
-  };
+  useEffect(() => {
+    if (!jobId) return;
+    Promise.all([getJobById(jobId), getJobBids(jobId)])
+      .then(([j, b]) => { setJob(j); setBids(b); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [jobId]);
 
-  const handleCounter = (bidId: string) => {
+  useLiveBids(
+    jobId,
+    (bid) => setBids((prev) => {
+      if (prev.some((b) => b.id === bid.id)) return prev;
+      return [bid, ...prev].sort((a, b) => a.offeredPrice - b.offeredPrice);
+    }),
+    (status) => {
+      if (status === 'RADIUS_EXPANDED') setRadiusExpanded(true);
+    },
+  );
+
+  const handleAccept = useCallback(async (bidId: string) => {
+    try {
+      const updatedJob = await acceptBid(bidId);
+      setActiveJob(updatedJob);
+      router.replace(`/(shipper)/match/${updatedJob.id}`);
+    } catch {
+      showError('Something went wrong accepting the bid. Please try again.');
+    }
+  }, [setActiveJob, router]);
+
+  const handleCounter = useCallback((_bidId: string) => {
+    if (!job) return;
     router.push(`/(shared)/chat/${job.id}`);
-  };
+  }, [job, router]);
+
+  const confirmCancel = useCallback(() => {
+    showConfirm({
+      title: 'Cancel this job?',
+      message: bids.length > 0
+        ? `${bids.length} driver${bids.length > 1 ? 's have' : ' has'} already bid. They will be notified it's been cancelled.`
+        : 'The listing will be removed. No drivers will be notified.',
+      confirmLabel: 'Yes, cancel job',
+      destructive: true,
+      onConfirm: async () => {
+        if (!jobId) return;
+        setCancelling(true);
+        try {
+          await cancelJob(jobId);
+          setActiveJob(null);
+          router.back();
+        } catch (err: unknown) {
+          setCancelling(false);
+          const msg = (err as { message?: string })?.message ?? 'Could not cancel the job.';
+          showError(msg);
+        }
+      },
+    });
+  }, [jobId, bids.length, setActiveJob, router]);
+
+  // ─── Loading skeleton ────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.appbar}>
+          <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+            <Ionicons name="arrow-back" size={22} color={C.text.primary} />
+          </Pressable>
+        </View>
+        <View style={{ padding: Spacing.screenH, gap: Spacing.gap }}>
+          <Skeleton width="70%" height={24} borderRadius={6} />
+          <Skeleton width="50%" height={16} borderRadius={4} />
+          <Skeleton width="100%" height={6} borderRadius={3} />
+          <Skeleton width="100%" height={110} borderRadius={12} />
+          <Skeleton width="100%" height={110} borderRadius={12} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  const expiresAt = job?.biddingExpiresAt
+    ? new Date(job.biddingExpiresAt)
+    : new Date(Date.now() + 5 * 60000);
+
+  const originShort = job?.originAddress.split(',')[0] ?? '—';
+  const destShort = job?.destAddress.split(',')[0] ?? '—';
+
+  // ─── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+
+      {/* Appbar */}
       <View style={styles.appbar}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={C.text.primary} />
+        <Pressable onPress={() => router.back()} style={styles.iconBtn}>
+          <Ionicons name="arrow-back" size={22} color={C.text.primary} />
         </Pressable>
-        <View style={styles.appbarCenter}>
-          <Text style={styles.title} numberOfLines={1}>
-            {job.originAddress.split(',')[0]} → {job.destAddress.split(',')[0]}
+
+        <View style={styles.appbarMeta}>
+          <Text style={styles.appbarRoute} numberOfLines={1}>
+            {originShort} → {destShort}
           </Text>
-          <Text style={styles.bidCount}>{bids.length} bid{bids.length !== 1 ? 's' : ''}</Text>
+          <Text style={styles.appbarSub}>
+            {job?.requiredTonnes}t
+            {job?.distanceKm ? ` • ${job.distanceKm} km` : ''}
+            {job?.askingPrice ? ` • $${job.askingPrice}` : ''}
+          </Text>
         </View>
-        <View style={styles.appbarRight} />
+
+        <Pressable
+          style={styles.iconBtn}
+          onPress={confirmCancel}
+          disabled={cancelling}
+        >
+          {cancelling
+            ? <ActivityIndicator size="small" color={C.status.red} />
+            : <Ionicons name="ellipsis-horizontal" size={22} color={C.text.secondary} />
+          }
+        </Pressable>
       </View>
 
-      <View style={styles.countdownRow}>
+      {/* Countdown + bid count row */}
+      <View style={styles.countdownSection}>
         <CountdownBar expiresAt={expiresAt} />
+        <View style={styles.countdownFooter}>
+          <Text style={styles.countdownLabel}>Bidding closes</Text>
+          <View style={[styles.bidBadge, bids.length > 0 && { backgroundColor: 'rgba(245,166,35,0.12)', borderColor: 'rgba(245,166,35,0.25)' }]}>
+            <Text style={[styles.bidBadgeText, bids.length > 0 && { color: C.accent }]}>
+              {bids.length} {bids.length === 1 ? 'bid' : 'bids'}
+            </Text>
+          </View>
+        </View>
       </View>
+
+      {/* Radius expansion banner */}
+      {radiusExpanded && (
+        <View style={[styles.banner, { backgroundColor: 'rgba(255,179,0,0.08)', borderColor: 'rgba(255,179,0,0.20)' }]}>
+          <Ionicons name="radio-outline" size={13} color={C.status.amber} />
+          <Text style={[styles.bannerText, { color: C.status.amber }]}>Expanding search radius — reaching more drivers</Text>
+        </View>
+      )}
 
       {/* View toggle */}
       <View style={styles.toggleRow}>
@@ -53,21 +179,20 @@ export default function BidInboxScreen() {
         <Pill active={view === 'terminal'} onPress={() => setView('terminal')}>Terminal</Pill>
       </View>
 
+      {/* Content */}
       {view === 'list' ? (
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, bids.length === 0 && styles.scrollCentered]}
         >
           {bids.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>Waiting for bids…</Text>
-            </View>
+            <WaitingState C={C} />
           ) : (
-            bids.map((bid) => (
+            bids.map((bid, i) => (
               <BidCard
                 key={bid.id}
                 bid={bid}
-                isBestMatch={bid.isBestMatch}
+                isBestMatch={i === 0}
                 onAccept={() => handleAccept(bid.id)}
                 onCounter={() => handleCounter(bid.id)}
                 onSkip={() => {}}
@@ -76,87 +201,174 @@ export default function BidInboxScreen() {
           )}
         </ScrollView>
       ) : (
-        <TerminalView bids={bids} job={job} />
+        <TerminalView bids={bids} C={C} />
       )}
+
     </SafeAreaView>
   );
 }
 
-function TerminalView({ bids, job }: { bids: ReturnType<typeof MOCK_BIDS.filter>; job: typeof MOCK_JOBS[0] }) {
-  const C = useColors();
-  const styles = useMemo(() => getStyles(C), [C]);
+// ─── Waiting state ────────────────────────────────────────────────────────────
+
+function WaitingState({ C }: { C: ReturnType<typeof useColors> }) {
+  return (
+    <View style={{ alignItems: 'center', gap: 12 }}>
+      <View style={{
+        width: 64, height: 64, borderRadius: 32,
+        backgroundColor: C.background.elevated,
+        borderWidth: 1, borderColor: C.background.divider,
+        alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Ionicons name="time-outline" size={28} color={C.text.tertiary} />
+      </View>
+      <Text style={{ fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary }}>
+        Waiting for drivers
+      </Text>
+      <Text style={{ fontSize: Typography.sizes.label, color: C.text.secondary, textAlign: 'center', maxWidth: 220, lineHeight: 20 }}>
+        Nearby drivers are being notified. Bids usually arrive within a minute.
+      </Text>
+    </View>
+  );
+}
+
+// ─── Terminal view ────────────────────────────────────────────────────────────
+
+function TerminalView({ bids, C }: { bids: Bid[]; C: ReturnType<typeof useColors> }) {
   const prices = bids.map((b) => b.offeredPrice);
   const low = prices.length ? Math.min(...prices) : 0;
   const med = prices.length ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
   const high = prices.length ? Math.max(...prices) : 0;
 
   return (
-    <View style={styles.terminal}>
-      <View style={styles.statsStrip}>
+    <View style={{ flex: 1 }}>
+      <View style={{
+        flexDirection: 'row', justifyContent: 'space-around',
+        backgroundColor: C.background.elevated,
+        paddingVertical: 14, marginHorizontal: Spacing.screenH,
+        borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider,
+      }}>
         {[
-          { label: 'BIDS', value: String(bids.length) },
-          { label: 'LOW', value: `$${low}` },
-          { label: 'MED', value: `$${med}` },
-          { label: 'HIGH', value: `$${high}` },
-          { label: 'TTL', value: '3:12' },
-        ].map(({ label, value }) => (
-          <View key={label} style={styles.statItem}>
-            <Text style={styles.statItemLabel}>{label}</Text>
-            <Text style={styles.statItemValue}>{value}</Text>
+          { label: 'BIDS', value: String(bids.length), accent: false },
+          { label: 'LOW', value: `$${low}`, accent: false },
+          { label: 'MED', value: `$${med}`, accent: true },
+          { label: 'HIGH', value: `$${high}`, accent: false },
+        ].map(({ label, value, accent }) => (
+          <View key={label} style={{ alignItems: 'center', gap: 4 }}>
+            <Text style={{ fontSize: Typography.sizes.micro, fontWeight: Typography.weights.semibold, color: C.text.tertiary, letterSpacing: 1 }}>
+              {label}
+            </Text>
+            <Text style={{ fontSize: Typography.sizes.cardTitle, fontWeight: Typography.weights.bold, color: accent ? C.accent : C.text.primary, fontVariant: ['tabular-nums'] }}>
+              {value}
+            </Text>
           </View>
         ))}
       </View>
-      <ScrollView style={styles.terminalLog} contentContainerStyle={styles.terminalLogContent}>
-        {bids.map((bid, i) => (
-          <View key={bid.id} style={styles.logRow}>
-            <Text style={styles.logTime}>{String(i + 1).padStart(2, '0')}:00</Text>
-            <Text style={styles.logName}>{bid.driver.name}</Text>
-            <Text style={styles.logPrice}>${bid.offeredPrice}</Text>
-            {bid.isBestMatch && (
-              <View style={styles.logBestBadge}>
-                <Ionicons name="star" size={10} color={C.accent} />
-                <Text style={styles.logBest}>BEST</Text>
-              </View>
-            )}
-          </View>
-        ))}
+
+      <ScrollView style={{ flex: 1, marginTop: Spacing.gap }} contentContainerStyle={{ paddingHorizontal: Spacing.screenH, paddingBottom: 40 }}>
+        {bids.length === 0 ? (
+          <Text style={{ textAlign: 'center', paddingVertical: 40, fontSize: Typography.sizes.body, color: C.text.tertiary }}>
+            No bids yet
+          </Text>
+        ) : (
+          bids.map((bid, i) => (
+            <View key={bid.id} style={{
+              flexDirection: 'row', alignItems: 'center',
+              paddingVertical: 12,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: C.background.divider,
+              gap: 12,
+            }}>
+              <Text style={{ fontSize: Typography.sizes.chip, color: C.text.tertiary, fontVariant: ['tabular-nums'], width: 24 }}>
+                {String(i + 1).padStart(2, '0')}
+              </Text>
+              <Text style={{ flex: 1, fontSize: Typography.sizes.body, color: C.text.primary }}>
+                {bid.driver.name || 'Driver'}
+              </Text>
+              <Text style={{ fontSize: Typography.sizes.cardTitle, fontWeight: Typography.weights.bold, color: i === 0 ? C.accent : C.text.primary, fontVariant: ['tabular-nums'] }}>
+                ${bid.offeredPrice}
+              </Text>
+            </View>
+          ))
+        )}
       </ScrollView>
     </View>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 function getStyles(C: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background.primary },
-    appbar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.screenH, height: 56 },
-    backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    appbarCenter: { flex: 1, alignItems: 'center' },
-    title: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
-    bidCount: { fontSize: Typography.sizes.chip, color: C.text.secondary },
-    appbarRight: { minWidth: Components.touchMin },
-    countdownRow: { paddingHorizontal: Spacing.screenH, paddingBottom: 4 },
-    toggleRow: { flexDirection: 'row', gap: Spacing.gapSm, paddingHorizontal: Spacing.screenH, paddingVertical: 12 },
-    scroll: { flex: 1 },
-    scrollContent: { padding: Spacing.screenH, gap: Spacing.gap },
-    empty: { alignItems: 'center', paddingVertical: 48 },
-    emptyText: { fontSize: Typography.sizes.body, color: C.text.tertiary },
-    terminal: { flex: 1 },
-    statsStrip: {
-      flexDirection: 'row', justifyContent: 'space-around',
-      backgroundColor: C.background.elevated,
-      paddingVertical: 12, marginHorizontal: Spacing.screenH,
-      borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider,
+
+    appbar: {
+      flexDirection: 'row', alignItems: 'center',
+      paddingHorizontal: Spacing.screenH - 4,
+      paddingVertical: 8,
+      gap: 4,
     },
-    statItem: { alignItems: 'center', gap: 4 },
-    statItemLabel: { fontSize: Typography.sizes.micro, fontWeight: Typography.weights.semibold, color: C.text.secondary, letterSpacing: 1 },
-    statItemValue: { fontSize: Typography.sizes.cardTitle, fontWeight: Typography.weights.bold, color: C.text.primary, fontVariant: ['tabular-nums'] },
-    terminalLog: { flex: 1, marginTop: Spacing.gap },
-    terminalLogContent: { paddingHorizontal: Spacing.screenH, gap: 2 },
-    logRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.background.divider, gap: 12 },
-    logTime: { fontSize: Typography.sizes.chip, color: C.text.tertiary, fontVariant: ['tabular-nums'], width: 36 },
-    logName: { flex: 1, fontSize: Typography.sizes.body, color: C.text.primary },
-    logPrice: { fontSize: Typography.sizes.cardTitle, fontWeight: Typography.weights.bold, color: C.accent, fontVariant: ['tabular-nums'] },
-    logBestBadge: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-    logBest: { fontSize: Typography.sizes.eyebrow, color: C.accent, fontWeight: Typography.weights.semibold },
+    iconBtn: {
+      width: 44, height: 44,
+      alignItems: 'center', justifyContent: 'center',
+      borderRadius: 22,
+    },
+    appbarMeta: { flex: 1, paddingHorizontal: 4 },
+    appbarRoute: {
+      fontSize: Typography.sizes.body,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.primary,
+    },
+    appbarSub: {
+      fontSize: Typography.sizes.chip,
+      color: C.text.secondary,
+      marginTop: 2,
+      fontVariant: ['tabular-nums'],
+    },
+
+    countdownSection: {
+      paddingHorizontal: Spacing.screenH,
+      paddingBottom: 8,
+      gap: 6,
+    },
+    countdownFooter: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    },
+    countdownLabel: {
+      fontSize: Typography.sizes.chip, color: C.text.tertiary,
+    },
+    bidBadge: {
+      paddingHorizontal: 8, paddingVertical: 3,
+      borderRadius: Radius.pill,
+      backgroundColor: C.background.elevated,
+      borderWidth: 1, borderColor: C.background.divider,
+    },
+    bidBadgeText: {
+      fontSize: Typography.sizes.chip,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.secondary,
+      fontVariant: ['tabular-nums'],
+    },
+
+    banner: {
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      marginHorizontal: Spacing.screenH, marginBottom: 4,
+      paddingHorizontal: 10, paddingVertical: 7,
+      borderRadius: Radius.chip, borderWidth: 1,
+    },
+    bannerText: {
+      fontSize: Typography.sizes.chip,
+      fontWeight: Typography.weights.medium,
+      flex: 1,
+    },
+
+    toggleRow: {
+      flexDirection: 'row', gap: Spacing.gapSm,
+      paddingHorizontal: Spacing.screenH,
+      paddingTop: 4, paddingBottom: 12,
+    },
+
+    scroll: { flex: 1 },
+    scrollContent: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: 40 },
+    scrollCentered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   });
 }

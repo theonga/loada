@@ -1,62 +1,72 @@
-import React, { useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { useColors, ColorPalette } from '@constants/theme';
+import React from 'react';
+import { StyleSheet, View } from 'react-native';
+import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 
 interface MapBgProps {
   children?: React.ReactNode;
+  initialRegion?: {
+    latitude: number;
+    longitude: number;
+    latitudeDelta: number;
+    longitudeDelta: number;
+  };
 }
 
-const GRID_SPACING = 40;
+const DARK_MAP_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#0a0a0a' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#4a4a4a' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0a0a0a' }] },
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1e1e1e' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#141414' }] },
+  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2a2a2a' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#1e1e1e' }] },
+  { featureType: 'road.highway', elementType: 'labels.text.fill', stylers: [{ color: '#8a8a8a' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050505' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#2a2a2a' }] },
+  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+  { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+  { featureType: 'administrative', elementType: 'geometry', stylers: [{ color: '#1e1e1e' }] },
+  { featureType: 'administrative.country', elementType: 'labels.text.fill', stylers: [{ color: '#4a4a4a' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#4a4a4a' }] },
+  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#0e0e0e' }] },
+];
 
-export function MapBg({ children }: MapBgProps) {
-  const cols = Math.ceil(400 / GRID_SPACING);
-  const rows = Math.ceil(800 / GRID_SPACING);
-  const C = useColors();
-  const styles = useMemo(() => getStyles(C), [C]);
+// Default to Harare city centre
+const DEFAULT_REGION = {
+  latitude: -17.8252,
+  longitude: 31.0335,
+  latitudeDelta: 0.0922,
+  longitudeDelta: 0.0421,
+};
 
+export function MapBg({ children, initialRegion }: MapBgProps) {
   return (
     <View style={styles.container}>
-      {/* Vertical grid lines */}
-      {Array.from({ length: cols }).map((_, i) => (
-        <View
-          key={`v-${i}`}
-          style={[styles.vLine, { left: i * GRID_SPACING }]}
-        />
-      ))}
-      {/* Horizontal grid lines */}
-      {Array.from({ length: rows }).map((_, i) => (
-        <View
-          key={`h-${i}`}
-          style={[styles.hLine, { top: i * GRID_SPACING }]}
-        />
-      ))}
+      <MapView
+        provider={PROVIDER_GOOGLE}
+        style={StyleSheet.absoluteFillObject}
+        initialRegion={initialRegion ?? DEFAULT_REGION}
+        customMapStyle={DARK_MAP_STYLE}
+        showsUserLocation
+        showsMyLocationButton={false}
+        showsCompass={false}
+        showsScale={false}
+        showsTraffic={false}
+        showsBuildings={false}
+        showsIndoors={false}
+        moveOnMarkerPress={false}
+        rotateEnabled={false}
+        toolbarEnabled={false}
+      />
       {children}
     </View>
   );
 }
 
-function getStyles(C: ColorPalette) {
-  return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: C.background.card,
-      position: 'relative',
-    },
-    vLine: {
-      position: 'absolute',
-      top: 0,
-      bottom: 0,
-      width: 1,
-      backgroundColor: C.background.divider,
-      opacity: 0.4,
-    },
-    hLine: {
-      position: 'absolute',
-      left: 0,
-      right: 0,
-      height: 1,
-      backgroundColor: C.background.divider,
-      opacity: 0.4,
-    },
-  });
-}
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    position: 'relative',
+  },
+});

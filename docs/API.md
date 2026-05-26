@@ -37,19 +37,44 @@ Verify OTP and log in (or register on first use).
 ```json
 { "phone": "+263771234567", "code": "123456", "role": "SHIPPER" }
 ```
-`role` accepted values: `SHIPPER`, `DRIVER`, `BOTH`
+`role` accepted values: `SHIPPER`, `DRIVER`
 
 **Response**
 ```json
 {
   "data": {
-    "user": { "id": "...", "name": "...", "role": "SHIPPER", "shipperProfile": { ... } },
+    "user": { "id": "...", "name": "...", "role": "SHIPPER", "phone": "+263771234567" },
     "accessToken": "eyJ...",
-    "refreshToken": "abc123..."
+    "refreshToken": "abc123...",
+    "isNewUser": true
   }
 }
 ```
 Access token expires in 15 minutes. Refresh token expires in 30 days.
+
+`isNewUser: true` means this is the first login for this phone number. The mobile client
+should route new users to the name-collection screen (`/(auth)/name`) before role-specific
+onboarding. Returning users go directly to their home screen.
+
+New users are created with an empty `name`. The client **must** call `PATCH /auth/me`
+with the user's chosen name before proceeding.
+
+---
+
+### PATCH /auth/me
+Update the authenticated user's display name.
+
+**Auth** required
+
+**Body**
+```json
+{ "name": "Tendai Moyo" }
+```
+
+**Response**
+```json
+{ "data": { "name": "Tendai Moyo" } }
+```
 
 ---
 
@@ -360,9 +385,30 @@ Create a subscription and initiate Paynow payment.
 
 **Body**
 ```json
-{ "plan": "MONTHLY" }
+{
+  "plan": "MONTHLY",
+  "method": "ecocash",
+  "phone": "+263771234567",
+  "email": "optional@example.com"
+}
 ```
 `plan` values: `WEEKLY | MONTHLY | ANNUAL`
+`method` values: `ecocash | onemoney | vmc`
+`phone` required for `ecocash` and `onemoney`. `email` optional for `vmc` (receipt).
+
+**Response** `201`
+```json
+{
+  "data": {
+    "subscription": { "id": "...", "status": "TRIAL", "plan": "MONTHLY", ... },
+    "pollUrl": "https://www.paynow.co.zw/Interface/CheckPayment/?...",
+    "redirectUrl": "https://www.paynow.co.zw/Payment/..."
+  }
+}
+```
+The subscription starts as `TRIAL`. A BullMQ worker polls the Paynow `pollUrl` every 10s.
+Once payment is confirmed, status transitions to `ACTIVE` and an FCM push + SMS is sent.
+The mobile client polls `GET /subscriptions/me` independently to detect activation.
 
 ---
 

@@ -5,21 +5,39 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
-import { sendOTP } from '@services/mock';
+import { CountryPicker } from '@components/ui/CountryPicker';
+import { DEFAULT_COUNTRY } from '@constants/countries';
+import type { Country } from '@constants/countries';
+import { sendOTP } from '@services';
+import { useAuthStore } from '@store/auth.store';
 
 export default function PhoneScreen() {
   const router = useRouter();
+  const [country, setCountry] = useState<Country>(DEFAULT_COUNTRY);
   const [phone, setPhone] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const { setPendingPhone } = useAuthStore();
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
+  const isValid = phone.replace(/\s/g, '').length >= country.minDigits;
+
   const handleContinue = async () => {
-    if (phone.length < 9) return;
+    if (!isValid) return;
+    const digits = phone.replace(/\D/g, '');
+    const fullPhone = `${country.dial}${digits}`;
     setLoading(true);
-    await sendOTP(`+263${phone}`);
-    setLoading(false);
-    router.push('/(auth)/otp');
+    setError('');
+    try {
+      await sendOTP(fullPhone);
+      setPendingPhone(fullPhone);
+      router.push('/(auth)/otp');
+    } catch {
+      setError('Could not send code. Check your number and try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -32,29 +50,30 @@ export default function PhoneScreen() {
         <Text style={styles.heading}>Your phone number</Text>
         <Text style={styles.sub}>We'll send a one-time code to verify</Text>
 
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+
         <View style={styles.inputRow}>
-          <View style={styles.countryCode}>
-            <Text style={styles.flag}>🇿🇼</Text>
-            <Text style={styles.code}>+263</Text>
-          </View>
+          <CountryPicker value={country} onChange={(c) => { setCountry(c); setPhone(''); }} />
           <TextInput
             style={styles.input}
-            placeholder="77 123 4567"
+            placeholder={country.code === 'ZW' ? '77 123 4567' : 'Phone number'}
             placeholderTextColor={C.text.tertiary}
             keyboardType="phone-pad"
             value={phone}
             onChangeText={setPhone}
-            maxLength={12}
+            maxLength={15}
             autoFocus
           />
         </View>
 
+        <Text style={styles.hint}>{country.dial} · {country.name}</Text>
+
         <View style={styles.spacer} />
 
         <Pressable
-          style={[styles.btn, { opacity: phone.length >= 9 ? 1 : 0.5 }]}
+          style={[styles.btn, !isValid && styles.btnDisabled]}
           onPress={handleContinue}
-          disabled={phone.length < 9 || loading}
+          disabled={!isValid || loading}
         >
           <Text style={styles.btnText}>{loading ? 'Sending code…' : 'Send code'}</Text>
         </Pressable>
@@ -70,13 +89,13 @@ function getStyles(C: ColorPalette) {
     backBtn: { minHeight: Components.touchMin, justifyContent: 'center', alignSelf: 'flex-start' },
     heading: { fontSize: Typography.sizes.screenTitle, fontWeight: Typography.weights.bold, color: C.text.primary, marginTop: 16 },
     sub: { fontSize: Typography.sizes.body, color: C.text.secondary },
+    error: { color: '#F44336', fontSize: Typography.sizes.label, textAlign: 'center' },
     inputRow: { flexDirection: 'row', gap: Spacing.gap, marginTop: 8 },
-    countryCode: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.background.elevated, borderRadius: Radius.button, borderWidth: 1, borderColor: C.background.divider, paddingHorizontal: 12, height: Components.inputHeight },
-    flag: { fontSize: 20 },
-    code: { color: C.text.primary, fontSize: Typography.sizes.body, fontWeight: Typography.weights.medium },
     input: { flex: 1, backgroundColor: C.background.elevated, borderRadius: Radius.button, borderWidth: 1, borderColor: C.background.divider, paddingHorizontal: 16, height: Components.inputHeight, color: C.text.primary, fontSize: Typography.sizes.body, fontVariant: ['tabular-nums'] },
+    hint: { fontSize: Typography.sizes.chip, color: C.text.tertiary, marginTop: -4 },
     spacer: { flex: 1 },
     btn: { height: Components.buttonHeight, backgroundColor: C.accent, borderRadius: Radius.button, alignItems: 'center', justifyContent: 'center' },
+    btnDisabled: { opacity: 0.5 },
     btnText: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.background.primary },
   });
 }

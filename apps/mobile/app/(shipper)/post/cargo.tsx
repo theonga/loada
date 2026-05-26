@@ -8,14 +8,17 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { TonnagePicker } from '@components/ui/TonnagePicker';
 import { Chip } from '@components/ui/Chip';
+import { useDraftJobStore } from '@store/draftJob.store';
 
 const REQUIREMENTS = ['FRAGILE', 'REFRIGERATED', 'OVERSIZED', 'HAZARDOUS'] as const;
 
 export default function PostCargoScreen() {
   const router = useRouter();
-  const [cargo, setCargo] = useState('');
-  const [tonnes, setTonnes] = useState(10);
-  const [reqs, setReqs] = useState<string[]>([]);
+  const setCargoDraft = useDraftJobStore((s) => s.setCargo);
+  const draft = useDraftJobStore((s) => s.draft);
+  const [cargo, setCargo] = useState(draft.cargoDescription || '');
+  const [tonnes, setTonnes] = useState(draft.requiredTonnes ?? 1);
+  const [reqs, setReqs] = useState<string[]>(draft.specialRequirements || []);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -71,7 +74,10 @@ export default function PostCargoScreen() {
       <View style={styles.footer}>
         <Pressable
           style={[styles.btn, !cargo && styles.btnDisabled]}
-          onPress={() => router.push('/(shipper)/post/pricing')}
+          onPress={() => {
+            setCargoDraft(cargo, tonnes, reqs);
+            router.push('/(shipper)/post/pricing');
+          }}
           disabled={!cargo}
         >
           <Text style={styles.btnText}>Continue →</Text>

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,14 +6,32 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { Chip } from '@components/ui/Chip';
-import { MOCK_SUBSCRIPTION } from '@services/mock/data';
+import { Skeleton } from '@components/ui/Skeleton';
+import { getMySubscription } from '@services';
+import type { Subscription } from '@/types';
 
 export default function SubscriptionScreen() {
   const router = useRouter();
-  const sub = MOCK_SUBSCRIPTION;
-  const renewsIn = Math.ceil((new Date(sub.currentPeriodEnd).getTime() - Date.now()) / 86400000);
+  const [sub, setSub] = useState<Subscription | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getMySubscription().then((s) => { setSub(s); setLoading(false); });
+  }, []);
+
+  const renewsIn = sub
+    ? Math.ceil((new Date(sub.currentPeriodEnd).getTime() - Date.now()) / 86400000)
+    : 0;
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  const planLabel = sub
+    ? sub.plan === 'WEEKLY' ? 'Weekly Plan' : sub.plan === 'MONTHLY' ? 'Monthly Plan' : 'Annual Plan'
+    : '—';
+
+  const planPrice = sub
+    ? sub.plan === 'WEEKLY' ? '$8 / week' : sub.plan === 'MONTHLY' ? '$28 / month' : '$280 / year'
+    : '—';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -26,17 +44,27 @@ export default function SubscriptionScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.activeCard}>
-          <View style={styles.activeRow}>
-            <View>
-              <Text style={styles.planName}>Weekly Plan</Text>
-              <Text style={styles.planPrice}>$8 / week</Text>
+        {loading ? (
+          <Skeleton width="100%" height={100} borderRadius={12} />
+        ) : sub ? (
+          <View style={styles.activeCard}>
+            <View style={styles.activeRow}>
+              <View>
+                <Text style={styles.planName}>{planLabel}</Text>
+                <Text style={styles.planPrice}>{planPrice}</Text>
+              </View>
+              <Chip variant={sub.status === 'ACTIVE' || sub.status === 'TRIAL' ? 'green' : 'amber'}>
+                {sub.status}
+              </Chip>
             </View>
-            <Chip variant="green">ACTIVE</Chip>
+            <Text style={styles.renewsIn}>Renews in {renewsIn} days</Text>
+            {sub.paynowReference ? <Text style={styles.ref}>Ref: {sub.paynowReference}</Text> : null}
           </View>
-          <Text style={styles.renewsIn}>Renews in {renewsIn} days</Text>
-          <Text style={styles.ref}>Ref: {sub.paynowReference}</Text>
-        </View>
+        ) : (
+          <View style={styles.activeCard}>
+            <Text style={{ color: C.text.secondary }}>No active subscription</Text>
+          </View>
+        )}
 
         <View style={styles.infoCard}>
           {[

@@ -6,16 +6,21 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius } from '@constants/theme';
 import { EarningsBar } from '@components/ui/EarningsBar';
 import { Skeleton } from '@components/ui/Skeleton';
-import { getEarningsSummary } from '@services/mock';
+import { getEarningsSummary } from '@services';
+import { useAuthStore } from '@store/auth.store';
 import type { EarningsSummary } from '@/types';
 
 export default function EarningsScreen() {
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
+  const user = useAuthStore((s) => s.user);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
   useEffect(() => {
-    getEarningsSummary('dp-001').then(setEarnings);
+    getEarningsSummary(user?.id ?? '').then(setEarnings).catch(() => {
+      // Show empty state on error
+      setEarnings(null);
+    });
   }, []);
 
   if (!earnings) {

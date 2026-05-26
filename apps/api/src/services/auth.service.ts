@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { redis } from "@/lib/redis";
-import { sendSMS } from "@/lib/bulkit";
+import { smsOTP } from "@/lib/bulkit";
 import { getConfigNum } from "@/lib/app-config";
 import bcrypt from "bcryptjs";
 import { UserRole } from "@prisma/client";
@@ -15,18 +15,19 @@ function hashPhone(phone: string): string {
   return bcrypt.hashSync(phone, 10);
 }
 
-export async function generateAndSendOTP(phone: string): Promise<void> {
+export async function generateAndSendOTP(phone: string): Promise<string | null> {
   const otp = generateOTP();
   const otpTtl = await getConfigNum("otp_expiry_seconds");
   await redis.setex(`loada:otp:${phone}`, otpTtl, otp);
-  await sendSMS(phone, `Your Loada verification code is: ${otp}. Valid for 10 minutes.`);
+  await smsOTP(phone, otp);
+  return process.env.NODE_ENV === "development" ? otp : null;
 }
 
 export async function verifyOTPAndLogin(
   phone: string,
   code: string,
   role: UserRole,
-): Promise<{ user: object; accessToken: string; refreshToken: string }> {
+): Promise<{ user: object; accessToken: string; refreshToken: string; isNewUser: boolean }> {
   const stored = await redis.get(`loada:otp:${phone}`);
   if (!stored || stored !== code) {
     throw Object.assign(new Error("Invalid or expired OTP"), { statusCode: 401, code: "INVALID_OTP" });
@@ -38,12 +39,13 @@ export async function verifyOTPAndLogin(
     include: { shipperProfile: true, driverProfile: true },
   });
 
+  const isNewUser = !user;
+
   if (!user) {
-    const nameFromPhone = `User ${phone.slice(-4)}`;
     user = await prisma.user.create({
       data: {
         phone,
-        name: nameFromPhone,
+        name: "",
         role,
         ...(role === "SHIPPER" || role === "BOTH"
           ? { shipperProfile: { create: {} } }
@@ -68,7 +70,11 @@ export async function verifyOTPAndLogin(
 
   const accessToken = await generateAccessToken(user.id, user.role);
   const refreshToken = await generateRefreshToken(user.id);
-  return { user, accessToken, refreshToken };
+  return { user, accessToken, refreshToken, isNewUser };
+}
+
+export async function updateUserProfile(userId: string, name: string): Promise<void> {
+  await prisma.user.update({ where: { id: userId }, data: { name } });
 }
 
 export async function generateAccessToken(userId: string, role: string): Promise<string> {

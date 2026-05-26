@@ -178,6 +178,69 @@ The seed reads `ADMIN_SEED_USERNAME` and `ADMIN_SEED_PASSWORD` env vars if set.
 
 ---
 
+## 2026-05-26 — `isNewUser` flag on verify-otp response
+
+**Decision:** `POST /auth/verify-otp` now returns `isNewUser: boolean`.
+
+**Why:** New users are created with an empty name (previously auto-generated as
+`User ${phone.slice(-4)}`). The mobile client needs to know whether to route to the
+name-collection screen (`/(auth)/name`) or directly to the home screen. Without this
+flag, the client would have to inspect the user's name or make a second API call.
+
+**Alternative rejected:** Checking `user.name === ""` client-side — fragile,
+implementation detail of how we generate names would leak into the client.
+
+---
+
+## 2026-05-26 — Name collected via dedicated screen, not at registration
+
+**Decision:** New users enter their name on a dedicated `/(auth)/name` screen after OTP
+verification, before role-specific onboarding. `PATCH /auth/me` writes the name.
+
+**Why:** The original auto-generated name (`User 1234`) was a placeholder that was never
+updatable. Collecting the name inline in the OTP screen clutters that screen. A dedicated
+screen matches the InDrive UX pattern and allows the name to be validated and previewed
+before continuing.
+
+**Returning users:** `isNewUser: false` → skip name screen entirely, go directly to
+`/(driver)` or `/(shipper)`.
+
+---
+
+## 2026-05-26 — Root layout guard exempts `driver-setup` and `name` routes
+
+**Decision:** The root `_layout.tsx` auth guard (`isAuthenticated && inAuthGroup → redirect home`)
+now allows authenticated users to remain in the `(auth)` segment when they are in
+`driver-setup/*` or `name` sub-routes.
+
+**Why:** After OTP verification, `isAuthenticated` becomes `true` and the user is routed
+to `/(auth)/driver-setup/documents` (new drivers) or `/(auth)/name` (all new users).
+Without this exemption, the guard immediately fires and redirects them back to `/(driver)`,
+making onboarding unreachable.
+
+**Scope of change:** Only `segments[1] === 'driver-setup'` and `segments[1] === 'name'`
+are exempted. All other auth-group routes (role selection, phone, OTP) correctly redirect
+authenticated users home.
+
+---
+
+## 2026-05-26 — `PROVIDER_GOOGLE` conditional for Expo Go on Android
+
+**Decision:** `react-native-maps` MapView uses `PROVIDER_GOOGLE` in production builds but
+falls back to `PROVIDER_DEFAULT` when running in Expo Go on Android.
+
+**Why:** `PROVIDER_GOOGLE` on Android requires the Google Maps API key to be embedded in
+the native manifest at build time. In Expo Go, the app runs inside Expo's pre-built shell
+which has its own manifest — our key is not present. Using `PROVIDER_GOOGLE` in Expo Go
+crashes the MapView on Android. `PROVIDER_DEFAULT` on Android still renders Google Maps
+(via Expo's built-in key) and supports `customMapStyle`, so the dark map style is preserved.
+
+**Detection:** `Constants.appOwnership === 'expo'` from `expo-constants`.
+
+**File:** `apps/mobile/app/(shipper)/post/route.tsx`
+
+---
+
 ## 2026-05-22 — InDrive-style pricing: no platform commission
 
 **Decision:** Loada charges drivers a flat subscription (weekly/monthly/annual).

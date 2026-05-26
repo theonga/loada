@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,15 +8,47 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { Chip } from '@components/ui/Chip';
 import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
-import { MOCK_JOBS } from '@services/mock/data';
+import { Skeleton } from '@components/ui/Skeleton';
+import { getJobById } from '@services';
 import { TONNAGE_LABELS } from '@constants/index';
+import type { Job } from '@/types';
 
 export default function LoadDetailScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
-  const job = MOCK_JOBS.find((j) => j.id === jobId) ?? MOCK_JOBS[0];
+  const [job, setJob] = useState<Job | null>(null);
+  const [loading, setLoading] = useState(true);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    getJobById(jobId)
+      .then((j) => { setJob(j); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [jobId]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={{ padding: Spacing.screenH, gap: Spacing.gap }}>
+          <Skeleton width="100%" height={160} borderRadius={12} />
+          <Skeleton width="100%" height={80} borderRadius={12} />
+          <Skeleton width="100%" height={80} borderRadius={12} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!job) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ color: C.text.secondary }}>Load not found</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -31,7 +63,14 @@ export default function LoadDetailScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {/* Mini map */}
         <View style={styles.miniMap}>
-          <MapBg>
+          <MapBg
+            initialRegion={{
+              latitude: (job.originLat + job.destLat) / 2,
+              longitude: (job.originLng + job.destLng) / 2,
+              latitudeDelta: Math.abs(job.destLat - job.originLat) + 0.05,
+              longitudeDelta: Math.abs(job.destLng - job.originLng) + 0.05,
+            }}
+          >
             <View style={styles.originPin}><MapPin kind="origin" /></View>
             <View style={styles.destPin}><MapPin kind="dest" /></View>
           </MapBg>

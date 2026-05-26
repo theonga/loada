@@ -6,21 +6,27 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Components } from '@constants/theme';
 import { LoadCard } from '@components/ui/LoadCard';
 import { Skeleton } from '@components/ui/Skeleton';
-import { getAvailableLoads } from '@services/mock';
+import { getAvailableLoads } from '@services';
+import { useAuthStore } from '@store/auth.store';
 import type { Job } from '@/types';
 
 export default function DriverLoadsScreen() {
   const router = useRouter();
   const [loads, setLoads] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const user = useAuthStore((s) => s.user);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
   useEffect(() => {
-    getAvailableLoads('dp-001').then((data) => {
-      setLoads(data);
-      setLoading(false);
-    });
+    getAvailableLoads(user?.id ?? '')
+      .then((data) => { setLoads(data); setLoading(false); })
+      .catch((err: unknown) => {
+        const msg = (err as { message?: string })?.message ?? 'Unknown error';
+        setError(`Could not load jobs: ${msg}`);
+        setLoading(false);
+      });
   }, []);
 
   return (
@@ -34,6 +40,8 @@ export default function DriverLoadsScreen() {
         <View style={styles.skeletons}>
           {[1, 2, 3].map((i) => <Skeleton key={i} width="100%" height={100} borderRadius={12} />)}
         </View>
+      ) : error ? (
+        <Text style={styles.empty}>{error}</Text>
       ) : (
         <FlatList
           data={loads}

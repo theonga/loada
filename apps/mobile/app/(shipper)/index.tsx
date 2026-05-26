@@ -1,32 +1,29 @@
 import React, { useMemo } from 'react';
-import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { useAuthStore } from '@store/auth.store';
+import { useJobStore } from '@store/job.store';
 import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
-import { MOCK_JOBS } from '@services/mock/data';
 import { JobStatus } from '@constants/index';
-
-const PAST_TRIPS = [
-  { from: 'Harare', to: 'Mutare', t: '2d' },
-  { from: 'Bulawayo', to: 'Harare', t: '1w' },
-  { from: 'Harare', to: 'Beitbridge', t: '2w' },
-];
 
 export default function ShipperHomeScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const activeJob = useJobStore((s) => s.activeJob);
   const firstName = user?.name.split(' ')[0] ?? 'there';
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  const activeJobs = MOCK_JOBS.filter((j) =>
-    [JobStatus.BIDDING, JobStatus.MATCHED, JobStatus.IN_TRANSIT, JobStatus.PICKUP_EN_ROUTE].includes(j.status),
-  );
+  const showActiveJob =
+    activeJob != null &&
+    [JobStatus.BIDDING, JobStatus.MATCHED, JobStatus.IN_TRANSIT, JobStatus.PICKUP_EN_ROUTE].includes(
+      activeJob.status,
+    );
 
   return (
     <View style={styles.container}>
@@ -38,7 +35,7 @@ export default function ShipperHomeScreen() {
         </MapBg>
       </View>
 
-      <SafeAreaView style={styles.overlay} edges={['top', 'bottom']}>
+      <SafeAreaView style={styles.overlay} edges={['top']}>
         {/* Appbar */}
         <View style={styles.appbar}>
           <View>
@@ -53,36 +50,26 @@ export default function ShipperHomeScreen() {
             <View style={styles.bellDot} />
           </Pressable>
         </View>
+      </SafeAreaView>
 
-        <View style={styles.spacer} />
-
-        {/* Bottom card area */}
-        <View style={styles.bottomArea}>
-          {activeJobs.length > 0 && (
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.activeJobsRow}
+      {/* Bottom card area — absolute so tab bar safe area doesn't double-count */}
+      <View style={styles.bottomArea}>
+          {showActiveJob && activeJob && (
+            <Pressable
+              style={styles.activeJobChip}
+              onPress={() => {
+                if (activeJob.status === JobStatus.BIDDING || activeJob.status === JobStatus.POSTED) {
+                  router.push(`/(shipper)/bids/${activeJob.id}`);
+                } else {
+                  router.push(`/(shipper)/tracking/${activeJob.id}`);
+                }
+              }}
             >
-              {activeJobs.map((job) => (
-                <Pressable
-                  key={job.id}
-                  style={styles.activeJobChip}
-                  onPress={() => {
-                    if (job.status === JobStatus.BIDDING) {
-                      router.push(`/(shipper)/bids/${job.id}`);
-                    } else {
-                      router.push(`/(shipper)/tracking/${job.id}`);
-                    }
-                  }}
-                >
-                  <Text style={styles.chipRoute} numberOfLines={1}>
-                    {job.originAddress.split(',')[0]} → {job.destAddress.split(',')[0]}
-                  </Text>
-                  <Text style={styles.chipStatus}>{job.status}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
+              <Text style={styles.chipRoute} numberOfLines={1}>
+                {activeJob.originAddress.split(',')[0]} → {activeJob.destAddress.split(',')[0]}
+              </Text>
+              <Text style={styles.chipStatus}>{activeJob.status}</Text>
+            </Pressable>
           )}
 
           {/* Where to card */}
@@ -102,7 +89,6 @@ export default function ShipperHomeScreen() {
             </Pressable>
           </View>
         </View>
-      </SafeAreaView>
     </View>
   );
 }
@@ -114,7 +100,7 @@ function getStyles(C: ColorPalette) {
     pin1: { position: 'absolute', top: '40%', left: '35%' },
     pin2: { position: 'absolute', top: '30%', left: '60%' },
     pin3: { position: 'absolute', top: '55%', left: '25%' },
-    overlay: { flex: 1 },
+    overlay: { position: 'absolute', top: 0, left: 0, right: 0 } as never,
     appbar: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -137,8 +123,7 @@ function getStyles(C: ColorPalette) {
       width: 7, height: 7, borderRadius: 4,
       backgroundColor: C.accent, borderWidth: 1.5, borderColor: C.background.card,
     },
-    spacer: { flex: 1 },
-    bottomArea: { padding: Spacing.screenH, gap: Spacing.gap },
+    bottomArea: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: Spacing.screenH, gap: Spacing.gap } as never,
     activeJobsRow: { paddingBottom: 4, gap: Spacing.gapSm },
     activeJobChip: {
       backgroundColor: 'rgba(20,20,20,0.92)',

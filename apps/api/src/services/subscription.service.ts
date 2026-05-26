@@ -2,9 +2,10 @@ import { prisma } from "@/lib/prisma";
 import { initiatePayment } from "@/lib/paynow";
 import { paynowPollQueue } from "@/lib/queues";
 import { notifyDriver } from "./notification.service";
-import { sendSMS } from "@/lib/bulkit";
+import { smsSubscriptionActive, smsSubscriptionExpired } from "@/lib/bulkit";
 import { getConfigNum } from "@/lib/app-config";
 import type { SubscriptionPlan } from "@prisma/client";
+import type { PaynowMethod } from "@/lib/paynow";
 import dayjs from "dayjs";
 
 const PLAN_DAYS: Record<SubscriptionPlan, number> = {
@@ -25,16 +26,25 @@ async function planAmount(plan: SubscriptionPlan): Promise<number> {
 export async function createSubscription(
   driverId: string,
   plan: SubscriptionPlan,
-  phone: string,
-): Promise<{ subscription: object; pollUrl: string }> {
+  method: PaynowMethod,
+  phone?: string,
+  email?: string,
+): Promise<{ subscription: object; pollUrl: string; redirectUrl: string }> {
   const amount = await planAmount(plan);
   const reference = `loada-sub-${driverId}-${Date.now()}`;
 
   let pollUrl = "stub://paynow";
-  let redirectUrl = "https://loada.app/payment/return";
+  let redirectUrl = "";
 
   try {
-    const payment = await initiatePayment({ reference, amount, phone, description: `Loada ${plan} subscription` });
+    const payment = await initiatePayment({
+      reference,
+      amount,
+      method,
+      phone: phone ?? "",
+      email: email ?? "",
+      description: `Loada ${plan} subscription`,
+    });
     pollUrl = payment.pollUrl;
     redirectUrl = payment.redirectUrl;
   } catch (err) {
@@ -65,8 +75,7 @@ export async function createSubscription(
 
   await paynowPollQueue.add("poll", { subscriptionId: subscription.id, pollUrl, attemptCount: 0 });
 
-  void redirectUrl;
-  return { subscription, pollUrl };
+  return { subscription, pollUrl, redirectUrl };
 }
 
 export async function handlePaymentConfirmed(subscriptionId: string, paynowRef: string): Promise<void> {
@@ -94,10 +103,7 @@ export async function handlePaymentConfirmed(subscriptionId: string, paynowRef: 
     "Subscription Activated",
     `Your ${sub.plan} Loada subscription is now active. Start browsing loads.`,
   );
-  await sendSMS(
-    sub.driver.user.phone,
-    `Loada: Your ${sub.plan} subscription is active. Open the app to find loads.`,
-  );
+  await smsSubscriptionActive(sub.driver.user.phone, sub.plan);
 }
 
 export async function renewSubscription(subscriptionId: string): Promise<void> {
@@ -114,6 +120,7 @@ export async function renewSubscription(subscriptionId: string): Promise<void> {
     const payment = await initiatePayment({
       reference,
       amount,
+      method: "ecocash",
       phone: sub.driver.user.phone,
       description: `Loada ${sub.plan} renewal`,
     });
@@ -136,6 +143,6 @@ export async function suspendExpiredDrivers(): Promise<void> {
   for (const sub of expired) {
     await prisma.subscription.update({ where: { id: sub.id }, data: { status: "EXPIRED" } });
     await notifyDriver(sub.driverId, "Subscription Expired", "Your subscription has expired. Renew to access loads.");
-    await sendSMS(sub.driver.user.phone, "Loada: Your subscription has expired. Renew to access loads.");
+    await smsSubscriptionExpired(sub.driver.user.phone);
   }
 }

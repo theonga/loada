@@ -6,7 +6,6 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { useAuthStore } from '@store/auth.store';
-import { setPendingRole } from '@services/mock';
 
 export default function RoleSelectionScreen() {
   const router = useRouter();
@@ -16,7 +15,6 @@ export default function RoleSelectionScreen() {
 
   const handleSelect = (role: 'shipper' | 'driver') => {
     setRole(role);
-    setPendingRole(role);
     router.push('/(auth)/phone');
   };
 

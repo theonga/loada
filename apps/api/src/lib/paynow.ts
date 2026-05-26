@@ -1,6 +1,8 @@
 import axios from "axios";
 import crypto from "crypto";
 
+export type PaynowMethod = "ecocash" | "onemoney" | "vmc";
+
 function generateHash(values: string[], integrationKey: string): string {
   const str = values.join("") + integrationKey;
   return crypto.createHash("sha512").update(str).digest("hex").toUpperCase();
@@ -9,30 +11,43 @@ function generateHash(values: string[], integrationKey: string): string {
 export async function initiatePayment(params: {
   reference: string;
   amount: number;
-  phone: string;
+  phone?: string;
+  email?: string;
   description: string;
+  method: PaynowMethod;
 }): Promise<{ pollUrl: string; redirectUrl: string }> {
-  const fields = {
+  const { reference, amount, phone = "", email = "", description, method } = params;
+
+  const fields: Record<string, string> = {
     id: process.env.PAYNOW_INTEGRATION_ID!,
-    reference: params.reference,
-    amount: params.amount.toFixed(2),
-    additionalinfo: params.description,
-    authemail: "",
-    phone: params.phone,
-    method: "ecocash",
-    returnurl: "https://loada.app/payment/return",
-    resulturl: "https://loada.app/payment/result",
+    reference,
+    amount: amount.toFixed(2),
+    additionalinfo: description,
+    authemail: email,
+    phone,
+    method,
+    returnurl: `${process.env.API_BASE_URL ?? "https://api.loada.app"}/v1/payments/return`,
+    resulturl: `${process.env.API_BASE_URL ?? "https://api.loada.app"}/v1/payments/result`,
     status: "Message",
   };
+
   const hash = generateHash(Object.values(fields), process.env.PAYNOW_INTEGRATION_KEY!);
+
+  const endpoint =
+    method === "vmc"
+      ? "https://www.paynow.co.zw/interface/remotetransaction"
+      : "https://www.paynow.co.zw/interface/remotetransaction";
+
   const res = await axios.post(
-    "https://www.paynow.co.zw/interface/remotetransaction",
+    endpoint,
     new URLSearchParams({ ...fields, hash }).toString(),
     { headers: { "Content-Type": "application/x-www-form-urlencoded" } },
   );
+
   const data = Object.fromEntries(new URLSearchParams(res.data as string));
-  if (data["status"] !== "Ok") throw new Error(`Paynow error: ${data["error"]}`);
-  return { pollUrl: data["pollurl"]!, redirectUrl: data["browserurl"]! };
+  if (data["status"] !== "Ok") throw new Error(`Paynow error: ${data["error"] ?? "Unknown"}`);
+
+  return { pollUrl: data["pollurl"]!, redirectUrl: data["browserurl"] ?? "" };
 }
 
 export async function pollPayment(pollUrl: string): Promise<{

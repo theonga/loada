@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,26 +6,80 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { EarningsBar } from '@components/ui/EarningsBar';
-import { MOCK_JOBS, MOCK_EARNINGS } from '@services/mock/data';
-import { placeBid } from '@services/mock';
+import { Skeleton } from '@components/ui/Skeleton';
+import { getJobById, placeBid, getEarningsSummary } from '@services';
+import { useAuthStore } from '@store/auth.store';
+import type { Job, EarningsSummary } from '@/types';
 
 export default function PlaceBidScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
-  const job = MOCK_JOBS.find((j) => j.id === jobId) ?? MOCK_JOBS[0];
-  const [price, setPrice] = useState(String(Math.round(job.askingPrice * 0.96)));
-  const [loading, setLoading] = useState(false);
+  const user = useAuthStore((s) => s.user);
+  const [job, setJob] = useState<Job | null>(null);
+  const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
+  const [price, setPrice] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
   const numPrice = parseInt(price, 10) || 0;
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
+  useEffect(() => {
+    if (!jobId) return;
+    Promise.all([
+      getJobById(jobId),
+      getEarningsSummary(user?.id ?? ''),
+    ])
+      .then(([j, e]) => {
+        setJob(j);
+        setEarnings(e);
+        setPrice(String(Math.round(j.askingPrice * 0.96)));
+        setLoading(false);
+      })
+      .catch(() => { setError('Could not load job details.'); setLoading(false); });
+  }, [jobId]);
+
   const handleBid = async () => {
-    if (!numPrice) return;
-    setLoading(true);
-    await placeBid(job.id, numPrice);
-    setLoading(false);
-    router.replace(`/(driver)/match/${job.id}`);
+    if (!numPrice || !job) return;
+    setSubmitting(true);
+    setError('');
+    try {
+      await placeBid(job.id, numPrice);
+      router.replace(`/(driver)/match/${job.id}`);
+    } catch (err) {
+      setError((err as { message?: string }).message ?? 'Could not place bid. Try again.');
+      setSubmitting(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.appbar}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={C.text.primary} />
+          </Pressable>
+          <Text style={styles.title}>Place bid</Text>
+          <View style={{ width: 44 }} />
+        </View>
+        <View style={{ padding: Spacing.screenH, gap: Spacing.gap }}>
+          <Skeleton width="100%" height={80} borderRadius={12} />
+          <Skeleton width="100%" height={160} borderRadius={12} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!job) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={{ color: C.text.secondary, textAlign: 'center', marginTop: 40 }}>
+          {error || 'Job not found.'}
+        </Text>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -40,7 +94,7 @@ export default function PlaceBidScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <View style={styles.jobSummary}>
           <Text style={styles.route}>{job.originAddress.split(',')[0]} → {job.destAddress.split(',')[0]}</Text>
-          <Text style={styles.distance}>{job.distanceKm} km · {job.cargoDescription}</Text>
+          <Text style={styles.distance}>{job.cargoDescription}</Text>
         </View>
 
         <View style={styles.priceInputArea}>
@@ -58,23 +112,27 @@ export default function PlaceBidScreen() {
           <Text style={styles.askingRef}>Asking price: ${job.askingPrice}</Text>
         </View>
 
-        <View style={styles.earningsSection}>
-          <Text style={styles.earningsTitle}>Your recent earnings</Text>
-          <EarningsBar
-            data={MOCK_EARNINGS.days.map((d) => ({ value: d.earned }))}
-            average={MOCK_EARNINGS.averagePerJob}
-            labels={MOCK_EARNINGS.days.map((d) => d.day)}
-          />
-        </View>
+        {earnings && earnings.days.length > 0 && (
+          <View style={styles.earningsSection}>
+            <Text style={styles.earningsTitle}>Your recent earnings</Text>
+            <EarningsBar
+              data={earnings.days.map((d) => ({ value: d.earned }))}
+              average={earnings.averagePerJob}
+              labels={earnings.days.map((d) => d.day)}
+            />
+          </View>
+        )}
+
+        {error ? <Text style={styles.errorText}>{error}</Text> : null}
       </ScrollView>
 
       <View style={styles.footer}>
         <Pressable
           style={[styles.btn, !numPrice && styles.btnDisabled]}
           onPress={handleBid}
-          disabled={!numPrice || loading}
+          disabled={!numPrice || submitting}
         >
-          <Text style={styles.btnText}>{loading ? 'Placing bid…' : `Bid $${numPrice}`}</Text>
+          <Text style={styles.btnText}>{submitting ? 'Placing bid…' : `Bid $${numPrice}`}</Text>
         </Pressable>
       </View>
     </SafeAreaView>
@@ -103,6 +161,7 @@ function getStyles(C: ColorPalette) {
     askingRef: { fontSize: Typography.sizes.label, color: C.text.tertiary, fontVariant: ['tabular-nums'] },
     earningsSection: { gap: Spacing.gap },
     earningsTitle: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.semibold, color: C.text.secondary, textTransform: 'uppercase', letterSpacing: 1 },
+    errorText: { color: C.status.red, fontSize: Typography.sizes.label, textAlign: 'center' },
     footer: { padding: Spacing.screenH },
     btn: { height: Components.buttonHeight, backgroundColor: C.accent, borderRadius: Radius.button, alignItems: 'center', justifyContent: 'center' },
     btnDisabled: { opacity: 0.5 },

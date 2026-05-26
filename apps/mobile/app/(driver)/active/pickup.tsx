@@ -1,19 +1,40 @@
 import React, { useState, useMemo } from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
-import { ImgBox } from '@components/ui/ImgBox';
-import { MOCK_JOBS } from '@services/mock/data';
+import { useJobStore } from '@store/job.store';
+import { usePhotoUpload } from '@hooks/usePhotoUpload';
+import { confirmPickup } from '@services';
 
 export default function PickupScreen() {
   const router = useRouter();
-  const [photoTaken, setPhotoTaken] = useState(false);
-  const job = MOCK_JOBS[1];
+  const job = useJobStore((s) => s.activeJob);
+  const setActiveJob = useJobStore((s) => s.setActiveJob);
+  const { state: photoState, pickAndUpload } = usePhotoUpload('pickup');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  const photoReady = photoState.status === 'done';
+  const uploading = photoState.status === 'uploading';
+
+  async function handleConfirm() {
+    if (!job || photoState.status !== 'done') return;
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await confirmPickup(job.id, photoState.s3Url);
+      setActiveJob({ ...job, status: 'IN_TRANSIT' as typeof job.status });
+      router.replace('/(driver)/active/in-transit');
+    } catch {
+      setSubmitError('Failed to confirm pickup. Try again.');
+      setSubmitting(false);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -28,35 +49,58 @@ export default function PickupScreen() {
       <View style={styles.content}>
         <Text style={styles.instruction}>Take a photo of the loaded cargo to confirm pickup</Text>
 
-        {/* Mock camera view */}
         <Pressable
           style={styles.cameraArea}
-          onPress={() => setPhotoTaken(true)}
+          onPress={photoReady || uploading ? undefined : pickAndUpload}
+          disabled={uploading || submitting}
         >
-          <ImgBox width="100%" height={280} borderRadius={Radius.card} label={photoTaken ? '✓ Photo taken' : 'Tap to take photo'} />
-          {!photoTaken && (
-            <View style={styles.cameraCornerTL} />
+          {photoState.status === 'done' ? (
+            <Image source={{ uri: photoState.s3Url }} style={styles.preview} resizeMode="cover" />
+          ) : (
+            <View style={styles.cameraPlaceholder}>
+              {uploading ? (
+                <ActivityIndicator color={C.accent} size="large" />
+              ) : (
+                <>
+                  <Ionicons name="camera-outline" size={48} color={C.text.tertiary} />
+                  <Text style={styles.cameraHint}>Tap to take photo</Text>
+                </>
+              )}
+            </View>
           )}
-          {!photoTaken && (
-            <View style={styles.cameraCornerBR} />
+          {!photoReady && !uploading && (
+            <>
+              <View style={styles.cameraCornerTL} />
+              <View style={styles.cameraCornerBR} />
+            </>
           )}
         </Pressable>
 
-        {photoTaken && (
+        {photoState.status === 'error' && (
+          <Text style={styles.errorText}>{photoState.message}</Text>
+        )}
+
+        {photoReady && (
           <View style={styles.confirmRow}>
             <Ionicons name="checkmark-circle" size={18} color={C.status.green} />
             <Text style={styles.confirmText}>Cargo photo taken</Text>
           </View>
         )}
 
+        {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
+
         <View style={styles.spacer} />
 
         <Pressable
-          style={[styles.btn, !photoTaken && styles.btnDisabled]}
-          onPress={() => router.replace('/(driver)/active/in-transit')}
-          disabled={!photoTaken}
+          style={[styles.btn, (!photoReady || submitting) && styles.btnDisabled]}
+          onPress={handleConfirm}
+          disabled={!photoReady || submitting}
         >
-          <Text style={styles.btnText}>Confirm & start delivery</Text>
+          {submitting ? (
+            <ActivityIndicator color={C.background.primary} />
+          ) : (
+            <Text style={styles.btnText}>Confirm &amp; start delivery</Text>
+          )}
         </Pressable>
       </View>
     </SafeAreaView>
@@ -71,11 +115,15 @@ function getStyles(C: ColorPalette) {
     title: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
     content: { flex: 1, padding: Spacing.screenH, gap: Spacing.gap },
     instruction: { fontSize: Typography.sizes.body, color: C.text.secondary, lineHeight: 22 },
-    cameraArea: { position: 'relative' },
+    cameraArea: { position: 'relative', borderRadius: Radius.card, overflow: 'hidden' },
+    cameraPlaceholder: { height: 280, backgroundColor: C.background.card, borderWidth: 1, borderColor: C.background.divider, borderRadius: Radius.card, alignItems: 'center', justifyContent: 'center', gap: 12 },
+    cameraHint: { fontSize: Typography.sizes.body, color: C.text.tertiary },
+    preview: { width: '100%', height: 280, borderRadius: Radius.card },
     cameraCornerTL: { position: 'absolute', top: 16, left: 16, width: 24, height: 24, borderTopWidth: 3, borderLeftWidth: 3, borderColor: C.accent, borderTopLeftRadius: 4 },
     cameraCornerBR: { position: 'absolute', bottom: 16, right: 16, width: 24, height: 24, borderBottomWidth: 3, borderRightWidth: 3, borderColor: C.accent, borderBottomRightRadius: 4 },
     confirmRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     confirmText: { fontSize: Typography.sizes.body, color: C.status.green, fontWeight: Typography.weights.medium },
+    errorText: { fontSize: Typography.sizes.label, color: C.status.red },
     spacer: { flex: 1 },
     btn: { height: Components.buttonHeight, backgroundColor: C.accent, borderRadius: Radius.button, alignItems: 'center', justifyContent: 'center' },
     btnDisabled: { opacity: 0.5 },

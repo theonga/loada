@@ -7,21 +7,59 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { Chip } from '@components/ui/Chip';
-import { MOCK_JOBS } from '@services/mock/data';
+import { useDraftJobStore } from '@store/draftJob.store';
+import { postJob } from '@services';
 
 export default function PostConfirmScreen() {
   const router = useRouter();
+  const complete = useDraftJobStore((s) => s.complete);
+  const reset = useDraftJobStore((s) => s.reset);
+  const draft = complete();
   const [loading, setLoading] = useState(false);
-  const job = MOCK_JOBS[0];
+  const [error, setError] = useState('');
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
   const handlePost = async () => {
+    if (!draft) return;
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 700));
-    setLoading(false);
-    router.replace(`/(shipper)/bids/${job.id}`);
+    setError('');
+    try {
+      const job = await postJob({
+        originAddress: draft.originAddress,
+        originLat: draft.originLat,
+        originLng: draft.originLng,
+        destAddress: draft.destAddress,
+        destLat: draft.destLat,
+        destLng: draft.destLng,
+        cargoDescription: draft.cargoDescription,
+        requiredTonnes: draft.requiredTonnes,
+        specialRequirements: draft.specialRequirements,
+        askingPrice: draft.askingPrice,
+        currency: draft.currency,
+      });
+      reset();
+      router.replace(`/(shipper)/bids/${job.id}`);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to post load. Please try again.');
+      setLoading(false);
+    }
   };
+
+  if (!draft) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.screenH }}>
+          <Text style={{ color: C.text.secondary, textAlign: 'center' }}>
+            Incomplete load details. Please go back and fill in all steps.
+          </Text>
+          <Pressable onPress={() => router.back()} style={{ marginTop: 16 }}>
+            <Text style={{ color: C.accent }}>Go back</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -42,39 +80,48 @@ export default function PostConfirmScreen() {
         <View style={styles.card}>
           <View style={styles.row}>
             <Text style={styles.rowLabel}>From</Text>
-            <Text style={styles.rowValue}>Avondale Shops, Harare</Text>
+            <Text style={styles.rowValue}>{draft.originAddress}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
             <Text style={styles.rowLabel}>To</Text>
-            <Text style={styles.rowValue}>Beitbridge Border Post</Text>
-          </View>
-          <View style={styles.divider} />
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Distance</Text>
-            <Text style={styles.rowValue}>583 km · 7h 40m</Text>
+            <Text style={styles.rowValue}>{draft.destAddress}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
             <Text style={styles.rowLabel}>Cargo</Text>
-            <Text style={styles.rowValue}>Industrial machinery</Text>
+            <Text style={styles.rowValue}>{draft.cargoDescription}</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
             <Text style={styles.rowLabel}>Tonnage</Text>
-            <Chip variant="amber">10t</Chip>
+            <Chip variant="amber">{draft.requiredTonnes}t</Chip>
           </View>
-          <View style={styles.divider} />
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>Special</Text>
-            <Chip variant="default">OVERSIZED</Chip>
-          </View>
+          {draft.specialRequirements.length > 0 && (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.row}>
+                <Text style={styles.rowLabel}>Special</Text>
+                <View style={{ flexDirection: 'row', gap: 4, flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
+                  {draft.specialRequirements.map((r) => (
+                    <Chip key={r} variant="default">{r}</Chip>
+                  ))}
+                </View>
+              </View>
+            </>
+          )}
           <View style={styles.divider} />
           <View style={styles.row}>
             <Text style={styles.rowLabel}>Asking price</Text>
-            <Text style={styles.price}>$480</Text>
+            <Text style={styles.price}>${draft.askingPrice}</Text>
           </View>
         </View>
+
+        {error ? (
+          <Text style={{ color: C.status.red, fontSize: Typography.sizes.label, textAlign: 'center' }}>
+            {error}
+          </Text>
+        ) : null}
 
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>

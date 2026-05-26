@@ -14,3 +14,7 @@ export const refreshSchema = z.object({
   userId: z.string().uuid(),
   refreshToken: z.string().min(1),
 });
+
+export const updateProfileSchema = z.object({
+  name: z.string().min(1, "Name required").max(100),
+});

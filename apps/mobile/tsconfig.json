@@ -16,8 +16,20 @@
       "@store/*": [
         "./store/*"
       ],
+      "@services": [
+        "./services/index.ts"
+      ],
       "@services/*": [
         "./services/*"
+      ],
+      "@hooks/*": [
+        "./hooks/*"
+      ],
+      "@expo/vector-icons": [
+        "./node_modules/expo/node_modules/@expo/vector-icons"
+      ],
+      "@expo/vector-icons/*": [
+        "./node_modules/expo/node_modules/@expo/vector-icons/*"
       ]
     }
   },

@@ -20,7 +20,7 @@ export async function subscriptionRoutes(app: FastifyInstance) {
       if (!user.driverProfile) {
         return reply.status(400).send({ success: false, error: { code: "NO_DRIVER_PROFILE", message: "No driver profile" } });
       }
-      const result = await createSubscription(user.driverProfile.id, body.plan, body.phone);
+      const result = await createSubscription(user.driverProfile.id, body.plan, body.method, body.phone, body.email);
       return reply.status(201).send({ success: true, data: result });
     } catch (err) {
       if (err instanceof ZodError) {

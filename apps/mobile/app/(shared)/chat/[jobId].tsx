@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Pressable, FlatList, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +7,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { Avatar } from '@components/ui/Avatar';
 import { ImgBox } from '@components/ui/ImgBox';
-import { MOCK_MESSAGES, MOCK_SHIPPER, MOCK_DRIVER } from '@services/mock/data';
+import { getMessages, sendMessage, getJobById } from '@services';
+import { useAuthStore } from '@store/auth.store';
+import { useLiveChat } from '@hooks/useLiveChat';
+import type { Message, Job } from '@/types';
 
 function formatTime(isoString: string): string {
   const d = new Date(isoString);
@@ -17,16 +20,50 @@ function formatTime(isoString: string): string {
 export default function ChatScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
+  const currentUser = useAuthStore((s) => s.user);
   const [input, setInput] = useState('');
-  const messages = MOCK_MESSAGES.filter((m) => m.jobId === (jobId ?? 'job-002'));
-  const currentUserId = MOCK_SHIPPER.id;
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [job, setJob] = useState<Job | null>(null);
+  const flatListRef = useRef<FlatList>(null);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  useEffect(() => {
+    if (!jobId) return;
+    Promise.all([getMessages(jobId), getJobById(jobId)])
+      .then(([msgs, j]) => { setMessages(msgs); setJob(j); })
+      .catch(() => {});
+  }, [jobId]);
+
+  useLiveChat(jobId, currentUser?.id, (msg) => {
+    setMessages((prev) => {
+      if (prev.some((m) => m.id === msg.id)) return prev;
+      return [...prev, msg];
+    });
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+  });
+
+  const otherPartyName = useMemo(() => {
+    const other = messages.find((m) => m.senderId !== currentUser?.id);
+    return other?.senderName ?? '—';
+  }, [messages, currentUser?.id]);
+
+  const handleSend = async () => {
+    const text = input.trim();
+    if (!text || !jobId) return;
     setInput('');
+    try {
+      const msg = await sendMessage(jobId, text);
+      setMessages((prev) => [...prev, msg]);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+    } catch {
+      // message failed — keep input cleared, user can retry by typing again
+    }
   };
+
+  const subtitle = job
+    ? `${job.originAddress.split(',')[0]} → ${job.destAddress.split(',')[0]}`
+    : '—';
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
@@ -35,10 +72,10 @@ export default function ChatScreen() {
           <Ionicons name="arrow-back" size={24} color={C.text.primary} />
         </Pressable>
         <View style={styles.appbarCenter}>
-          <Avatar name={MOCK_DRIVER.name} size={32} />
+          <Avatar name={otherPartyName} size={32} />
           <View>
-            <Text style={styles.chatTitle}>{MOCK_DRIVER.name}</Text>
-            <Text style={styles.chatSub}>Harare → Bulawayo</Text>
+            <Text style={styles.chatTitle}>{otherPartyName}</Text>
+            <Text style={styles.chatSub}>{subtitle}</Text>
           </View>
         </View>
         <View style={{ width: 44 }} />
@@ -49,11 +86,13 @@ export default function ChatScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         <FlatList
+          ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.messageList}
+          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => {
-            const isMe = item.senderId === currentUserId;
+            const isMe = item.senderId === currentUser?.id;
             return (
               <View style={[styles.messageRow, isMe && styles.messageRowMe]}>
                 {!isMe && <Avatar name={item.senderName} size={28} />}

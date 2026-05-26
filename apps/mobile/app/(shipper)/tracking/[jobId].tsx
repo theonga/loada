@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,22 +9,45 @@ import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
 import { Avatar } from '@components/ui/Avatar';
 import { StatusBadge } from '@components/ui/StatusBadge';
-import { MOCK_DRIVERS, MOCK_JOBS } from '@services/mock/data';
+import { getJobById, getDriverProfile } from '@services';
+import { useDriverLocation } from '@hooks/useDriverLocation';
 import { JobStatus } from '@constants/index';
+import type { Job, DriverProfile } from '@/types';
 
 export default function TrackingScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
   const [sheetExpanded, setSheetExpanded] = useState(false);
-  const job = MOCK_JOBS.find((j) => j.id === jobId) ?? MOCK_JOBS[1];
-  const driver = MOCK_DRIVERS[1];
+  const [job, setJob] = useState<Job | null>(null);
+  const [driver, setDriver] = useState<DriverProfile | null>(null);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    getJobById(jobId)
+      .then((j) => {
+        setJob(j);
+        if (j.matchedDriverId) {
+          return getDriverProfile(j.matchedDriverId).then(setDriver);
+        }
+      })
+      .catch(() => {});
+  }, [jobId]);
+
+  const driverPosition = useDriverLocation(jobId);
 
   return (
     <View style={styles.container}>
       <View style={styles.mapContainer}>
-        <MapBg>
+        <MapBg
+          initialRegion={job ? {
+            latitude: (job.originLat + job.destLat) / 2,
+            longitude: (job.originLng + job.destLng) / 2,
+            latitudeDelta: Math.abs(job.destLat - job.originLat) + 0.05,
+            longitudeDelta: Math.abs(job.destLng - job.originLng) + 0.05,
+          } : undefined}
+        >
           <View style={styles.pinMe}><MapPin kind="me" /></View>
           <View style={styles.pinDriver}><MapPin kind="driver" /></View>
           <View style={styles.pinDest}><MapPin kind="dest" label="Dest" /></View>
@@ -44,14 +67,14 @@ export default function TrackingScreen() {
           <View style={styles.handle} />
 
           <View style={styles.driverRow}>
-            <Avatar name={driver.name} size={44} />
+            <Avatar name={driver?.name ?? '?'} size={44} />
             <View style={styles.driverInfo}>
-              <Text style={styles.driverName}>{driver.name}</Text>
-              <StatusBadge status={job.status as JobStatus} />
+              <Text style={styles.driverName}>{driver?.name ?? '—'}</Text>
+              {job && <StatusBadge status={job.status as JobStatus} />}
             </View>
             <Pressable
               style={styles.chatBtn}
-              onPress={() => router.push(`/(shared)/chat/${job.id}`)}
+              onPress={() => job && router.push(`/(shared)/chat/${job.id}`)}
             >
               <Ionicons name="chatbubble-outline" size={20} color={C.text.primary} />
             </Pressable>
@@ -60,27 +83,31 @@ export default function TrackingScreen() {
           <View style={styles.statsRow}>
             <View style={styles.stat}>
               <Text style={styles.statLabel}>ETA</Text>
-              <Text style={styles.statValue}>4h 20m</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statLabel}>Distance</Text>
-              <Text style={styles.statValue}>312 km</Text>
+              <Text style={styles.statValue}>
+                {driverPosition?.etaSeconds
+                  ? `${Math.round(driverPosition.etaSeconds / 60)}m`
+                  : '—'}
+              </Text>
             </View>
             <View style={styles.stat}>
               <Text style={styles.statLabel}>Speed</Text>
-              <Text style={styles.statValue}>87 km/h</Text>
+              <Text style={styles.statValue}>
+                {driverPosition?.speed != null
+                  ? `${Math.round(driverPosition.speed)} km/h`
+                  : '—'}
+              </Text>
             </View>
           </View>
 
           <View style={styles.routeRow}>
             <Text style={styles.routeText} numberOfLines={1}>
-              {job.originAddress.split(',')[0]}
+              {job?.originAddress.split(',')[0] ?? '—'}
             </Text>
             <View style={styles.routeProgress}>
               <View style={styles.routeProgressFill} />
             </View>
             <Text style={styles.routeText} numberOfLines={1}>
-              {job.destAddress.split(',')[0]}
+              {job?.destAddress.split(',')[0] ?? '—'}
             </Text>
           </View>
         </View>

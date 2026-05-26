@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Pressable, TextInput, StyleSheet } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,8 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { Avatar } from '@components/ui/Avatar';
 import { Chip } from '@components/ui/Chip';
-import { MOCK_DRIVERS, MOCK_JOBS } from '@services/mock/data';
-import { submitRating } from '@services/mock';
+import { Skeleton } from '@components/ui/Skeleton';
+import { getJobById, getDriverProfile, submitRating } from '@services';
+import type { DriverProfile } from '@/types';
 
 const RATING_TAGS = ['ON_TIME', 'CAREFUL_WITH_CARGO', 'PROFESSIONAL', 'GOOD_COMMUNICATION'];
 
@@ -19,18 +20,35 @@ export default function RateDriverScreen() {
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const driver = MOCK_DRIVERS[0];
+  const [driver, setDriver] = useState<DriverProfile | null>(null);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  useEffect(() => {
+    if (!jobId) return;
+    getJobById(jobId)
+      .then((job) => {
+        if (job.matchedDriverId) {
+          return getDriverProfile(job.matchedDriverId);
+        }
+        return null;
+      })
+      .then((d) => { if (d) setDriver(d); })
+      .catch(() => {});
+  }, [jobId]);
 
   const toggleTag = (tag: string) =>
     setTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
 
   const handleSubmit = async () => {
+    if (!driver) return;
     setLoading(true);
-    await submitRating(jobId ?? 'job-001', driver.userId, score, tags);
-    setLoading(false);
-    router.replace('/(shipper)');
+    try {
+      await submitRating(jobId ?? '', driver.userId, score, tags, comment || undefined);
+      router.replace('/(shipper)');
+    } catch {
+      setLoading(false);
+    }
   };
 
   return (
@@ -45,9 +63,19 @@ export default function RateDriverScreen() {
 
       <View style={styles.content}>
         <View style={styles.driverCard}>
-          <Avatar name={driver.name} size={64} />
-          <Text style={styles.driverName}>{driver.name}</Text>
-          <Text style={styles.truckInfo}>{driver.truckMake} {driver.truckModel}</Text>
+          {driver ? (
+            <>
+              <Avatar name={driver.name} size={64} />
+              <Text style={styles.driverName}>{driver.name}</Text>
+              <Text style={styles.truckInfo}>{driver.truckMake} {driver.truckModel}</Text>
+            </>
+          ) : (
+            <>
+              <Skeleton width={64} height={64} borderRadius={32} />
+              <Skeleton width={120} height={18} borderRadius={4} />
+              <Skeleton width={80} height={14} borderRadius={4} />
+            </>
+          )}
         </View>
 
         {/* Star rating */}
@@ -86,7 +114,7 @@ export default function RateDriverScreen() {
 
         <View style={styles.spacer} />
 
-        <Pressable style={styles.btn} onPress={handleSubmit} disabled={loading}>
+        <Pressable style={[styles.btn, (!driver || loading) && { opacity: 0.5 }]} onPress={handleSubmit} disabled={!driver || loading}>
           <Text style={styles.btnText}>{loading ? 'Submitting…' : 'Submit rating'}</Text>
         </Pressable>
 

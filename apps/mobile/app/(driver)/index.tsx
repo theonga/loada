@@ -8,26 +8,38 @@ import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
 import { useAuthStore } from '@store/auth.store';
 import { useLocationStore } from '@store/location.store';
-import { MOCK_JOBS } from '@services/mock/data';
+import { useJobStore } from '@store/job.store';
 import { JobStatus } from '@constants/index';
+import { useDriverHeartbeat } from '@hooks/useDriverHeartbeat';
 
 export default function DriverHomeScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
-  const { isOnline, setOnline } = useLocationStore();
+  const { isOnline, setOnline, driverLocation } = useLocationStore();
+  const activeJob = useJobStore((s) => s.activeJob);
   const firstName = user?.name.split(' ')[0] ?? 'Driver';
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  const activeJob = MOCK_JOBS.find(
-    (j) => j.status === JobStatus.PICKUP_EN_ROUTE || j.status === JobStatus.IN_TRANSIT,
-  );
+  useDriverHeartbeat();
+
+  const showActiveJob =
+    activeJob != null &&
+    (activeJob.status === JobStatus.PICKUP_EN_ROUTE ||
+      activeJob.status === JobStatus.IN_TRANSIT ||
+      activeJob.status === JobStatus.MATCHED);
 
   return (
     <View style={styles.container}>
       <View style={styles.mapContainer}>
-        <MapBg>
-          <View style={styles.pinMe}><MapPin kind="me" /></View>
+        <MapBg
+          initialRegion={driverLocation ? {
+            latitude: driverLocation.lat,
+            longitude: driverLocation.lng,
+            latitudeDelta: 0.04,
+            longitudeDelta: 0.04,
+          } : undefined}
+        >
           {isOnline && (
             <>
               <View style={styles.pinLoad1}><MapPin kind="load" label="10t" /></View>
@@ -58,7 +70,7 @@ export default function DriverHomeScreen() {
 
         <View style={styles.spacer} />
 
-        {activeJob && (
+        {showActiveJob && activeJob && (
           <Pressable
             style={styles.activeJobCard}
             onPress={() => router.push(`/(driver)/active/en-route`)}
