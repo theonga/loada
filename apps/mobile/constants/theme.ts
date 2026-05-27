@@ -73,8 +73,8 @@ export function useColors(): ColorPalette {
 export const Colors = darkColors;
 
 export const Typography = {
-  fontHeading: "SourceSans3",
-  fontBody: "SourceSans3",
+  fontHeading: "OpenSans",
+  fontBody: "OpenSans",
   weights: {
     light: "300" as const,
     regular: "400" as const,

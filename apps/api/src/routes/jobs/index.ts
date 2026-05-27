@@ -2,8 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { ZodError, z } from "zod";
 import { requireAuth, requireDriver, requireShipper } from "@/middleware/auth";
 import { createJobSchema, jobsQuerySchema, marketRefQuerySchema, jobStatusUpdateSchema } from "@/schemas/job.schema";
-import { createJob, getAvailableLoads, getJobById, cancelJob, getShipperJobs, transitionJobStatus } from "@/services/job.service";
+import { createJob, getAvailableLoads, getJobById, cancelJob, getShipperJobs, getDriverActiveJobs, transitionJobStatus } from "@/services/job.service";
 import { getMarketReference } from "@/services/market.service";
+import { getRoutePolyline } from "@/lib/google-maps";
 
 type AuthUser = { id: string; driverProfile?: { id: string } | null; shipperProfile?: { id: string } | null };
 
@@ -69,6 +70,11 @@ export async function jobRoutes(app: FastifyInstance) {
         if (!user.driverProfile) {
           return reply.status(400).send({ success: false, error: { code: "NO_DRIVER_PROFILE", message: "No driver profile" } });
         }
+        // driver?view=active returns jobs the driver is matched/in-progress on
+        if ((req.query as Record<string, string>)["view"] === "active") {
+          const jobs = await getDriverActiveJobs(user.driverProfile.id);
+          return reply.send({ success: true, data: { jobs } });
+        }
         if (!query.lat || !query.lng) {
           return reply.status(400).send({ success: false, error: { code: "LOCATION_REQUIRED", message: "lat and lng required for driver loads" } });
         }
@@ -79,7 +85,8 @@ export async function jobRoutes(app: FastifyInstance) {
       if (!user.shipperProfile) {
         return reply.status(400).send({ success: false, error: { code: "NO_SHIPPER_PROFILE", message: "No shipper profile" } });
       }
-      const jobs = await getShipperJobs(user.shipperProfile.id);
+      const statusFilter = (req.query as Record<string, string>)["status"] ?? undefined;
+      const jobs = await getShipperJobs(user.shipperProfile.id, statusFilter);
       return reply.send({ success: true, data: { jobs } });
     } catch (err) {
       if (err instanceof ZodError) {
@@ -129,6 +136,21 @@ export async function jobRoutes(app: FastifyInstance) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
       }
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
+    }
+  });
+
+  app.get("/:jobId/directions", { preHandler: [requireAuth] }, async (req, reply) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const job = await getJobById(jobId);
+      const points = await getRoutePolyline(
+        { lat: job.originLat, lng: job.originLng },
+        { lat: job.destLat, lng: job.destLng },
+      );
+      return reply.send({ success: true, data: { points } });
+    } catch (err) {
       const e = err as { statusCode?: number; code?: string; message: string };
       return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
     }

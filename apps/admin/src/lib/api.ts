@@ -96,6 +96,24 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+
+  getAnalytics: (params: AnalyticsQuery) =>
+    request<AnalyticsData>(`/analytics?${new URLSearchParams(params as Record<string, string>)}`),
+
+  bulkSuspendUsers:    (ids: string[], reason: string) =>
+    request<{ updated: number }>("/users/bulk-suspend",   { method: "POST", body: JSON.stringify({ ids, reason }) }),
+
+  bulkUnsuspendUsers:  (ids: string[]) =>
+    request<{ updated: number }>("/users/bulk-unsuspend", { method: "POST", body: JSON.stringify({ ids }) }),
+
+  bulkApproveDriverDocs: (ids: string[]) =>
+    request<{ updated: number }>("/drivers/bulk-approve-docs", { method: "POST", body: JSON.stringify({ ids }) }),
+
+  bulkRejectDriverDocs:  (ids: string[], reason: string) =>
+    request<{ updated: number }>("/drivers/bulk-reject-docs",  { method: "POST", body: JSON.stringify({ ids, reason }) }),
+
+  bulkCancelJobs: (ids: string[], reason: string) =>
+    request<{ updated: number }>("/jobs/bulk-cancel", { method: "POST", body: JSON.stringify({ ids, reason }) }),
 };
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -138,6 +156,12 @@ export interface DriverRecord {
   truckRegistration: string;
   truckMake: string;
   truckModel: string;
+  truckYear?: number | null;
+  truckPhotoUrl?: string | null;
+  licenceUrl?: string | null;
+  licenceExpiry?: string | null;
+  registrationUrl?: string | null;
+  registrationExpiry?: string | null;
   documentStatus: string;
   isOnline: boolean;
   user: UserRecord;
@@ -175,3 +199,21 @@ interface PaginatedUsers { users: UserRecord[]; total: number; page: number; lim
 interface PaginatedDrivers { drivers: DriverRecord[]; total: number; page: number; limit: number }
 interface PaginatedJobs { jobs: JobRecord[]; total: number; page: number; limit: number }
 interface PaginatedSubscriptions { subscriptions: SubscriptionRecord[]; total: number; page: number; limit: number }
+
+export interface AnalyticsQuery {
+  from?:        string;
+  to?:          string;
+  granularity?: "day" | "week" | "month";
+}
+
+export interface AnalyticsData {
+  series: {
+    jobs:    Array<{ date: string; created: number; completed: number }>;
+    revenue: Array<{ date: string; amount: number }>;
+    users:   Array<{ date: string; newUsers: number }>;
+  };
+  breakdown: {
+    jobsByStatus: Record<string, number>;
+    subsByPlan:   Record<string, number>;
+  };
+}

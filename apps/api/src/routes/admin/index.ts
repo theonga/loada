@@ -278,6 +278,205 @@ export async function adminRoutes(app: FastifyInstance) {
     }
   });
 
+  // ── Analytics ─────────────────────────────────────────────────────────────────
+
+  app.get("/analytics", { preHandler: [requireAdmin] }, async (req, reply) => {
+    try {
+      const query = z.object({
+        from:        z.string().datetime().optional(),
+        to:          z.string().datetime().optional(),
+        granularity: z.enum(["day", "week", "month"]).default("day"),
+      }).parse(req.query);
+
+      const to   = query.to   ? new Date(query.to)   : new Date();
+      const from = query.from ? new Date(query.from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const trunc = query.granularity;
+
+      // Time-series: jobs created + completed per period
+      const jobSeries = await prisma.$queryRaw<Array<{ date: Date; created: bigint; completed: bigint }>>`
+        SELECT
+          DATE_TRUNC(${trunc}, "createdAt") AS date,
+          COUNT(*) AS created,
+          COUNT(*) FILTER (WHERE status = 'COMPLETED') AS completed
+        FROM "Job"
+        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+        GROUP BY 1
+        ORDER BY 1
+      `;
+
+      // Time-series: subscription revenue per period
+      const revenueSeries = await prisma.$queryRaw<Array<{ date: Date; amount: unknown }>>`
+        SELECT
+          DATE_TRUNC(${trunc}, "paidAt") AS date,
+          SUM(amount) AS amount
+        FROM "SubscriptionPayment"
+        WHERE status = 'PAID'
+          AND "paidAt" >= ${from} AND "paidAt" <= ${to}
+        GROUP BY 1
+        ORDER BY 1
+      `;
+
+      // Time-series: new users per period
+      const userSeries = await prisma.$queryRaw<Array<{ date: Date; new_users: bigint }>>`
+        SELECT
+          DATE_TRUNC(${trunc}, "createdAt") AS date,
+          COUNT(*) AS new_users
+        FROM "User"
+        WHERE "createdAt" >= ${from} AND "createdAt" <= ${to}
+        GROUP BY 1
+        ORDER BY 1
+      `;
+
+      // Breakdown: current job counts by status
+      const jobsByStatus = await prisma.job.groupBy({
+        by: ["status"],
+        _count: { _all: true },
+      });
+
+      // Breakdown: subscriptions by plan
+      const subsByPlan = await prisma.subscription.groupBy({
+        by: ["plan"],
+        _count: { _all: true },
+      });
+
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+
+      return reply.send({
+        success: true,
+        data: {
+          series: {
+            jobs: jobSeries.map((r) => ({
+              date:      fmt(r.date),
+              created:   Number(r.created),
+              completed: Number(r.completed),
+            })),
+            revenue: revenueSeries.map((r) => ({
+              date:   fmt(r.date),
+              amount: Number(r.amount ?? 0),
+            })),
+            users: userSeries.map((r) => ({
+              date:     fmt(r.date),
+              newUsers: Number(r.new_users),
+            })),
+          },
+          breakdown: {
+            jobsByStatus: Object.fromEntries(jobsByStatus.map((r) => [r.status, r._count._all])),
+            subsByPlan:   Object.fromEntries(subsByPlan.map((r)   => [r.plan,   r._count._all])),
+          },
+        },
+      });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
+      }
+      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+    }
+  });
+
+  // ── Bulk user actions ─────────────────────────────────────────────────────────
+
+  app.post("/users/bulk-suspend", { preHandler: [requireAdmin] }, async (req, reply) => {
+    try {
+      const { ids, reason } = z.object({
+        ids:    z.array(z.string().uuid()).min(1),
+        reason: z.string().min(1),
+      }).parse(req.body);
+
+      const { count } = await prisma.user.updateMany({
+        where: { id: { in: ids } },
+        data:  { isSuspended: true, suspensionReason: reason },
+      });
+
+      return reply.send({ success: true, data: { updated: count } });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
+      }
+      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+    }
+  });
+
+  app.post("/users/bulk-unsuspend", { preHandler: [requireAdmin] }, async (req, reply) => {
+    try {
+      const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body);
+
+      const { count } = await prisma.user.updateMany({
+        where: { id: { in: ids } },
+        data:  { isSuspended: false, suspensionReason: null },
+      });
+
+      return reply.send({ success: true, data: { updated: count } });
+    } catch (err) {
+      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+    }
+  });
+
+  // ── Bulk driver document actions ──────────────────────────────────────────────
+
+  app.post("/drivers/bulk-approve-docs", { preHandler: [requireAdmin] }, async (req, reply) => {
+    try {
+      const { ids } = z.object({ ids: z.array(z.string().uuid()).min(1) }).parse(req.body);
+
+      const { count } = await prisma.driverProfile.updateMany({
+        where: { id: { in: ids } },
+        data:  { documentStatus: "APPROVED" },
+      });
+
+      return reply.send({ success: true, data: { updated: count } });
+    } catch (err) {
+      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+    }
+  });
+
+  app.post("/drivers/bulk-reject-docs", { preHandler: [requireAdmin] }, async (req, reply) => {
+    try {
+      const { ids, reason } = z.object({
+        ids:    z.array(z.string().uuid()).min(1),
+        reason: z.string().min(1),
+      }).parse(req.body);
+
+      void reason;
+      const { count } = await prisma.driverProfile.updateMany({
+        where: { id: { in: ids } },
+        data:  { documentStatus: "REJECTED" },
+      });
+
+      return reply.send({ success: true, data: { updated: count } });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
+      }
+      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+    }
+  });
+
+  // ── Bulk job cancel ───────────────────────────────────────────────────────────
+
+  app.post("/jobs/bulk-cancel", { preHandler: [requireAdmin] }, async (req, reply) => {
+    try {
+      const { ids, reason } = z.object({
+        ids:    z.array(z.string().uuid()).min(1),
+        reason: z.string().min(1),
+      }).parse(req.body);
+
+      void reason;
+      const { count } = await prisma.job.updateMany({
+        where: {
+          id:     { in: ids },
+          status: { notIn: ["COMPLETED", "CANCELLED"] },
+        },
+        data: { status: "CANCELLED" },
+      });
+
+      return reply.send({ success: true, data: { updated: count } });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
+      }
+      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+    }
+  });
+
   // ── Subscriptions ─────────────────────────────────────────────────────────────
 
   app.get("/subscriptions", { preHandler: [requireAdmin] }, async (req, reply) => {

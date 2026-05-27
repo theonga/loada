@@ -1,6 +1,6 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 
 interface MapBgProps {
   children?: React.ReactNode;
@@ -10,6 +10,7 @@ interface MapBgProps {
     latitudeDelta: number;
     longitudeDelta: number;
   };
+  routePoints?: Array<{ latitude: number; longitude: number }>;
 }
 
 const DARK_MAP_STYLE = [
@@ -40,7 +41,7 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.0421,
 };
 
-export function MapBg({ children, initialRegion }: MapBgProps) {
+export function MapBg({ children, initialRegion, routePoints }: MapBgProps) {
   return (
     <View style={styles.container}>
       <MapView
@@ -58,7 +59,16 @@ export function MapBg({ children, initialRegion }: MapBgProps) {
         moveOnMarkerPress={false}
         rotateEnabled={false}
         toolbarEnabled={false}
-      />
+      >
+        {routePoints && routePoints.length > 1 && (
+          <Polyline
+            coordinates={routePoints}
+            strokeColor="#F5A623"
+            strokeWidth={3}
+            lineDashPattern={[0]}
+          />
+        )}
+      </MapView>
       {children}
     </View>
   );

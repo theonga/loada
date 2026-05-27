@@ -9,10 +9,10 @@ import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
 import { Avatar } from '@components/ui/Avatar';
 import { StatusBadge } from '@components/ui/StatusBadge';
-import { getJobById, getDriverProfile } from '@services';
+import { getJobById, getDriverProfile, getJobDirections } from '@services';
 import { useDriverLocation } from '@hooks/useDriverLocation';
 import { JobStatus } from '@constants/index';
-import type { Job, DriverProfile } from '@/types';
+import type { Job, DriverProfile, RoutePoint } from '@/types';
 
 export default function TrackingScreen() {
   const router = useRouter();
@@ -20,6 +20,7 @@ export default function TrackingScreen() {
   const [sheetExpanded, setSheetExpanded] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [driver, setDriver] = useState<DriverProfile | null>(null);
+  const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -28,9 +29,16 @@ export default function TrackingScreen() {
     getJobById(jobId)
       .then((j) => {
         setJob(j);
+        const tasks: Promise<unknown>[] = [];
         if (j.matchedDriverId) {
-          return getDriverProfile(j.matchedDriverId).then(setDriver);
+          tasks.push(getDriverProfile(j.matchedDriverId).then(setDriver));
         }
+        tasks.push(
+          getJobDirections(jobId)
+            .then(setRoutePoints)
+            .catch(() => {}),
+        );
+        return Promise.all(tasks);
       })
       .catch(() => {});
   }, [jobId]);
@@ -47,6 +55,7 @@ export default function TrackingScreen() {
             latitudeDelta: Math.abs(job.destLat - job.originLat) + 0.05,
             longitudeDelta: Math.abs(job.destLng - job.originLng) + 0.05,
           } : undefined}
+          routePoints={routePoints}
         >
           <View style={styles.pinMe}><MapPin kind="me" /></View>
           <View style={styles.pinDriver}><MapPin kind="driver" /></View>

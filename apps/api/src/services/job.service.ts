@@ -161,11 +161,25 @@ export async function cancelJob(jobId: string, userId: string) {
   await redis.del(`loada:job:${jobId}:status`);
 }
 
-export async function getShipperJobs(shipperId: string) {
+export async function getShipperJobs(shipperId: string, status?: string) {
   return prisma.job.findMany({
-    where: { shipperId },
+    where: {
+      shipperId,
+      ...(status ? { status: status as JobStatus } : {}),
+    },
     orderBy: { createdAt: "desc" },
     include: { bids: true, delivery: true },
+  });
+}
+
+export async function getDriverActiveJobs(driverId: string) {
+  return prisma.job.findMany({
+    where: {
+      matchedDriverId: driverId,
+      status: { in: ["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT", "DELIVERED", "COMPLETED", "CANCELLED"] as JobStatus[] },
+    },
+    orderBy: { updatedAt: "desc" },
+    include: { bids: true, delivery: true, shipper: { include: { user: true } } },
   });
 }
 

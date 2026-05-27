@@ -114,3 +114,58 @@ export async function getDirections(
     durationS: leg.duration.value,
   };
 }
+
+export async function getRoutePolyline(
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): Promise<Array<{ latitude: number; longitude: number }>> {
+  const cacheKey = `loada:route:${origin.lat.toFixed(4)},${origin.lng.toFixed(4)}-${destination.lat.toFixed(4)},${destination.lng.toFixed(4)}`;
+  const cached = await redis.get(cacheKey);
+  if (cached) return JSON.parse(cached) as Array<{ latitude: number; longitude: number }>;
+
+  const res = await mapsClient.directions({
+    params: {
+      origin: `${origin.lat},${origin.lng}`,
+      destination: `${destination.lat},${destination.lng}`,
+      mode: TravelMode.driving,
+      key: process.env.GOOGLE_MAPS_API_KEY!,
+    },
+  });
+
+  const encoded = res.data.routes[0]?.overview_polyline?.points ?? "";
+  const points = decodePolyline(encoded);
+  await redis.setex(cacheKey, 3600, JSON.stringify(points));
+  return points;
+}
+
+function decodePolyline(encoded: string): Array<{ latitude: number; longitude: number }> {
+  const points: Array<{ latitude: number; longitude: number }> = [];
+  let index = 0;
+  let lat = 0;
+  let lng = 0;
+
+  while (index < encoded.length) {
+    let b: number;
+    let shift = 0;
+    let result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += result & 1 ? ~(result >> 1) : result >> 1;
+
+    points.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+
+  return points;
+}

@@ -21,6 +21,7 @@ import type {
   AppNotification,
   MarketReference,
   CreateJobInput,
+  RoutePoint,
 } from '@/types';
 
 // ─── Internal API response shapes ────────────────────────────────────────────
@@ -87,6 +88,8 @@ interface ApiBid {
   note?: string | null;
   createdAt: string;
   driver?: ApiDriverProfile | null;
+  distanceKm?: number | null;
+  etaMinutes?: number | null;
 }
 
 interface ApiEarnings {
@@ -215,6 +218,8 @@ function toBid(b: ApiBid): Bid {
     currency: b.currency,
     status: b.status as Bid['status'],
     note: b.note ?? undefined,
+    distanceKm: b.distanceKm ?? null,
+    etaMinutes: b.etaMinutes ?? null,
     createdAt: b.createdAt,
   };
 }
@@ -323,9 +328,20 @@ export async function cancelJob(jobId: string): Promise<void> {
   await api.patch(`/jobs/${jobId}/cancel`);
 }
 
-export async function getShipperJobs(_shipperId: string): Promise<Job[]> {
-  const data = await api.get<{ jobs: ApiJob[] }>('/jobs');
+export async function getShipperJobs(_shipperId: string, status?: string): Promise<Job[]> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+  const data = await api.get<{ jobs: ApiJob[] }>(`/jobs${qs}`);
   return (data.jobs ?? []).map(toJob);
+}
+
+export async function getDriverActiveJobs(_driverId: string): Promise<Job[]> {
+  const data = await api.get<{ jobs: ApiJob[] }>('/jobs?role=driver&view=active');
+  return (data.jobs ?? []).map(toJob);
+}
+
+export async function getJobDirections(jobId: string): Promise<Array<{ latitude: number; longitude: number }>> {
+  const data = await api.get<{ points: Array<{ latitude: number; longitude: number }> }>(`/jobs/${jobId}/directions`);
+  return data.points ?? [];
 }
 
 // ─── Bids ─────────────────────────────────────────────────────────────────────

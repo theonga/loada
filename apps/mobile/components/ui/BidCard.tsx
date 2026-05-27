@@ -66,6 +66,24 @@ export function BidCard({ bid, isBestMatch, onAccept, onCounter, onSkip }: BidCa
         <ImgBox width={60} height={42} borderRadius={Radius.inner} label="truck" />
       </View>
 
+      {/* Distance + ETA from driver's current location to pickup */}
+      {(bid.distanceKm != null || bid.etaMinutes != null) && (
+        <View style={styles.distRow}>
+          {bid.distanceKm != null && (
+            <View style={styles.distStat}>
+              <Ionicons name="navigate-outline" size={12} color={C.text.tertiary} />
+              <Text style={styles.distText}>{bid.distanceKm} km away</Text>
+            </View>
+          )}
+          {bid.etaMinutes != null && (
+            <View style={styles.distStat}>
+              <Ionicons name="time-outline" size={12} color={C.text.tertiary} />
+              <Text style={styles.distText}>ETA {bid.etaMinutes} min</Text>
+            </View>
+          )}
+        </View>
+      )}
+
       {bid.note && (
         <Text style={styles.note}>{bid.note}</Text>
       )}
@@ -172,6 +190,24 @@ function getStyles(C: ColorPalette) {
     truckModel: {
       fontSize: Typography.sizes.chip,
       color: C.text.secondary,
+    },
+    distRow: {
+      flexDirection: 'row',
+      gap: Spacing.gap,
+      backgroundColor: C.background.elevated,
+      borderRadius: Radius.inner,
+      paddingHorizontal: 10,
+      paddingVertical: 7,
+    },
+    distStat: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    distText: {
+      fontSize: Typography.sizes.chip,
+      color: C.text.secondary,
+      fontVariant: ['tabular-nums'],
     },
     note: {
       fontSize: Typography.sizes.label,

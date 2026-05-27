@@ -7,12 +7,12 @@ import { StyleSheet, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import {
   useFonts,
-  SourceSans3_300Light,
-  SourceSans3_400Regular,
-  SourceSans3_500Medium,
-  SourceSans3_600SemiBold,
-  SourceSans3_700Bold,
-} from '@expo-google-fonts/source-sans-3';
+  OpenSans_300Light,
+  OpenSans_400Regular,
+  OpenSans_500Medium,
+  OpenSans_600SemiBold,
+  OpenSans_700Bold,
+} from '@expo-google-fonts/open-sans';
 import { useAuthStore } from '@store/auth.store';
 import { disconnectAll } from '@services/socket';
 import { DevPanel } from '@components/dev/DevPanel';
@@ -66,11 +66,11 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
-    SourceSans3_300Light,
-    SourceSans3_400Regular,
-    SourceSans3_500Medium,
-    SourceSans3_600SemiBold,
-    SourceSans3_700Bold,
+    OpenSans_300Light,
+    OpenSans_400Regular,
+    OpenSans_500Medium,
+    OpenSans_600SemiBold,
+    OpenSans_700Bold,
   });
 
   useEffect(() => {

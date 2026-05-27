@@ -77,7 +77,14 @@ export interface Bid {
   status: BidStatus;
   note?: string;
   isBestMatch?: boolean;
+  distanceKm?: number | null;
+  etaMinutes?: number | null;
   createdAt: string;
+}
+
+export interface RoutePoint {
+  latitude: number;
+  longitude: number;
 }
 
 export interface Message {

@@ -6,6 +6,18 @@ import { transitionJobStatus } from "./job.service";
 import { smsMatchConfirmedDriver } from "@/lib/bulkit";
 import { getConfigNum } from "@/lib/app-config";
 
+const ACTIVE_JOB_STATUSES = ["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"] as const;
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLng = (lng2 - lng1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export async function placeBid(jobId: string, driverId: string, offeredPrice: number) {
   const [job, driver] = await Promise.all([
     prisma.job.findUnique({ where: { id: jobId }, include: { shipper: { include: { user: true } } } }),
@@ -39,10 +51,19 @@ export async function placeBid(jobId: string, driverId: string, offeredPrice: nu
     );
   }
 
-  const [activeBidCount, maxActiveBids] = await Promise.all([
+  const [activeBidCount, maxActiveBids, activeJobCount] = await Promise.all([
     prisma.bid.count({ where: { driverId, status: { in: ["PENDING", "COUNTERED"] } } }),
     getConfigNum("max_active_bids_per_driver"),
+    prisma.job.count({ where: { matchedDriverId: driverId, status: { in: [...ACTIVE_JOB_STATUSES] } } }),
   ]);
+
+  if (activeJobCount > 0) {
+    throw Object.assign(
+      new Error("Complete your current active job before bidding on new ones"),
+      { statusCode: 400, code: "ACTIVE_JOB_IN_PROGRESS" },
+    );
+  }
+
   if (activeBidCount >= maxActiveBids) {
     throw Object.assign(new Error(`Maximum ${maxActiveBids} active bids allowed`), {
       statusCode: 400,
@@ -164,15 +185,32 @@ export async function counterBid(bidId: string, userId: string, newPrice: number
 }
 
 export async function getJobBids(jobId: string) {
-  return prisma.bid.findMany({
-    where: { jobId },
-    orderBy: { offeredPrice: "asc" },
-    include: {
-      driver: {
-        include: {
-          user: { select: { id: true, name: true, profilePhotoUrl: true } },
+  const [job, bids] = await Promise.all([
+    prisma.job.findUnique({ where: { id: jobId }, select: { originLat: true, originLng: true } }),
+    prisma.bid.findMany({
+      where: { jobId },
+      orderBy: { offeredPrice: "asc" },
+      include: {
+        driver: {
+          include: {
+            user: { select: { id: true, name: true, profilePhotoUrl: true } },
+          },
         },
       },
-    },
+    }),
+  ]);
+
+  if (!job) return [];
+
+  return bids.map((bid) => {
+    const lat = bid.driver.lastLocationLat;
+    const lng = bid.driver.lastLocationLng;
+    let distanceKm: number | null = null;
+    let etaMinutes: number | null = null;
+    if (lat != null && lng != null) {
+      distanceKm = Math.round(haversineKm(lat, lng, job.originLat, job.originLng));
+      etaMinutes = Math.round((distanceKm / 60) * 60);
+    }
+    return { ...bid, distanceKm, etaMinutes };
   });
 }

@@ -1,6 +1,0 @@
-.heading { font-size: 22px; font-weight: 600; margin-bottom: 20px; }
-.toolbar { margin-bottom: 16px; }
-.pagination { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
-.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.dialog { padding: 24px; width: 440px; display: flex; flex-direction: column; gap: 16px; }
-.dialogTitle { font-size: 16px; font-weight: 600; }
