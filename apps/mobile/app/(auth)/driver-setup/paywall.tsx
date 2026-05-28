@@ -238,7 +238,7 @@ export default function DriverPaywallScreen() {
         <Pressable onPress={() => router.back()} style={styles.closeBtn}>
           <Ionicons name="close" size={24} color={C.text.primary} />
         </Pressable>
-        <Text style={styles.step}>4 / 4</Text>
+        <Text style={styles.step}>3 / 3</Text>
         <View style={{ width: 44 }} />
       </View>
       <ProgressBar pct={100} />

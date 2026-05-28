@@ -51,10 +51,10 @@ export default function VehicleSetupScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.progressWrap}>
-        <ProgressBar pct={0.4} />
+        <ProgressBar pct={33} />
       </View>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.eyebrow}>DRIVER SETUP · 2 OF 4</Text>
+        <Text style={styles.eyebrow}>DRIVER SETUP · 1 OF 3</Text>
         <Text style={styles.heading}>Your truck</Text>
         <Text style={styles.sub}>This determines which loads you'll be matched with.</Text>
 

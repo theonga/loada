@@ -94,10 +94,10 @@ export default function DriverDocumentsScreen() {
         <Pressable onPress={() => router.back()} style={styles.closeBtn}>
           <Ionicons name="close" size={24} color={C.text.primary} />
         </Pressable>
-        <Text style={styles.step}>3 / 4</Text>
+        <Text style={styles.step}>2 / 3</Text>
         <View style={{ width: 44 }} />
       </View>
-      <ProgressBar pct={75} />
+      <ProgressBar pct={66} />
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.heading}>Your documents</Text>
@@ -151,7 +151,9 @@ export default function DriverDocumentsScreen() {
           </Text>
         </Pressable>
         {!alreadySubscribed && (
-          <Text style={styles.skip}>Documents under review? You can skip for now.</Text>
+          <Pressable onPress={() => router.push('/(auth)/driver-setup/paywall')}>
+            <Text style={styles.skip}>Skip for now — upload after subscribing</Text>
+          </Pressable>
         )}
       </View>
     </SafeAreaView>
