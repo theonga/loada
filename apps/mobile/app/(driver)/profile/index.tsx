@@ -14,7 +14,9 @@ import { Chip } from '@components/ui/Chip';
 import { Skeleton } from '@components/ui/Skeleton';
 import { useAuthStore } from '@store/auth.store';
 import { showError, showConfirm } from '@components/ui/AppAlert';
-import { getMyDriverProfile, getMySubscription, updateProfile } from '@services';
+import { getMyDriverProfile, getMySubscription, updateProfile, updateDriverProfile } from '@services';
+import { isAuthError } from '@services/api';
+import { TONNAGE_TIERS } from '@constants/index';
 import type { DriverProfile, Subscription } from '@/types';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
@@ -28,6 +30,11 @@ export default function DriverProfileScreen() {
 
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  const [truckMakeInput, setTruckMakeInput] = useState('');
+  const [truckModelInput, setTruckModelInput] = useState('');
+  const [truckYearInput, setTruckYearInput] = useState('');
+  const [truckRegInput, setTruckRegInput] = useState('');
+  const [capacityInput, setCapacityInput] = useState<number>(1);
   const [saving, setSaving] = useState(false);
 
   const C = useColors();
@@ -36,34 +43,52 @@ export default function DriverProfileScreen() {
   useEffect(() => {
     getMyDriverProfile()
       .then(setDriver)
-      .catch((err: unknown) => setLoadError((err as { message?: string })?.message ?? 'Could not load profile'));
+      .catch((err: unknown) => {
+        if (isAuthError(err)) return;
+        setLoadError((err as { message?: string })?.message ?? 'Could not load profile');
+      });
     getMySubscription().then(setSub).catch(() => {});
   }, []);
 
   const startEdit = useCallback(() => {
     setNameInput(user?.name ?? '');
+    setTruckMakeInput(driver?.truckMake ?? '');
+    setTruckModelInput(driver?.truckModel ?? '');
+    setTruckYearInput(driver?.truckYear ? String(driver.truckYear) : '');
+    setTruckRegInput(driver?.truckRegistration ?? '');
+    setCapacityInput(driver?.capacityTonnes ?? 1);
     setEditing(true);
-  }, [user?.name]);
+  }, [user?.name, driver]);
 
   const cancelEdit = useCallback(() => {
     setEditing(false);
-    setNameInput('');
   }, []);
 
   const saveEdit = useCallback(async () => {
-    const trimmed = nameInput.trim();
-    if (!trimmed || trimmed === user?.name) { cancelEdit(); return; }
     setSaving(true);
     try {
-      await updateProfile(trimmed);
-      updateName(trimmed);
+      const nameTrimmed = nameInput.trim();
+      if (nameTrimmed && nameTrimmed !== user?.name) {
+        await updateProfile(nameTrimmed);
+        updateName(nameTrimmed);
+      }
+      const year = parseInt(truckYearInput, 10);
+      await updateDriverProfile({
+        truckMake: truckMakeInput.trim() || undefined,
+        truckModel: truckModelInput.trim() || undefined,
+        truckYear: !isNaN(year) && year >= 1990 ? year : undefined,
+        truckRegistration: truckRegInput.trim() || undefined,
+        capacityTonnes: capacityInput as 1 | 2 | 5 | 10 | 20 | 30,
+      });
+      const updated = await getMyDriverProfile();
+      setDriver(updated);
       setEditing(false);
     } catch {
-      showError('Could not update your name. Please try again.');
+      showError('Could not save changes. Please try again.');
     } finally {
       setSaving(false);
     }
-  }, [nameInput, user?.name, cancelEdit, updateName]);
+  }, [nameInput, user?.name, truckMakeInput, truckModelInput, truckYearInput, truckRegInput, capacityInput, updateName]);
 
   function expiryWarning(isoDate?: string) {
     if (!isoDate) return false;
@@ -76,7 +101,7 @@ export default function DriverProfileScreen() {
   }
 
   const menuItems: { label: string; icon: IoniconName; onPress: () => void }[] = [
-    { label: 'Notifications', icon: 'notifications-outline', onPress: () => router.push('/(shared)/notifications') },
+    { label: 'Earnings', icon: 'wallet-outline', onPress: () => router.push('/(driver)/earnings') },
     { label: 'Help & support', icon: 'help-circle-outline', onPress: () => router.push('/(shared)/help') },
     { label: 'Settings', icon: 'settings-outline', onPress: () => router.push('/(shared)/settings') },
   ];
@@ -140,17 +165,80 @@ export default function DriverProfileScreen() {
                   autoCorrect={false}
                   placeholder="Your full name"
                   placeholderTextColor={C.text.tertiary}
-                  returnKeyType="done"
-                  onSubmitEditing={saveEdit}
+                  returnKeyType="next"
                 />
               </View>
               <View style={styles.fieldGroup}>
                 <Text style={styles.fieldLabel}>PHONE NUMBER</Text>
                 <View style={[styles.fieldDisplay, { backgroundColor: C.background.elevated, borderColor: C.background.divider }]}>
-                  <Text style={[styles.fieldDisplayText, { color: C.text.secondary }]}>
-                    {user?.phone ?? '—'}
-                  </Text>
+                  <Text style={[styles.fieldDisplayText, { color: C.text.secondary }]}>{user?.phone ?? '—'}</Text>
                   <Text style={styles.fieldNote}>Contact support to change</Text>
+                </View>
+              </View>
+              <View style={styles.fieldDivider} />
+              <Text style={styles.fieldSectionLabel}>VEHICLE</Text>
+              <View style={styles.fieldRow}>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>MAKE</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { color: C.text.primary, borderColor: C.background.divider, backgroundColor: C.background.elevated }]}
+                    value={truckMakeInput}
+                    onChangeText={setTruckMakeInput}
+                    placeholder="e.g. Isuzu"
+                    placeholderTextColor={C.text.tertiary}
+                    autoCorrect={false}
+                  />
+                </View>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>MODEL</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { color: C.text.primary, borderColor: C.background.divider, backgroundColor: C.background.elevated }]}
+                    value={truckModelInput}
+                    onChangeText={setTruckModelInput}
+                    placeholder="e.g. NQR"
+                    placeholderTextColor={C.text.tertiary}
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+              <View style={styles.fieldRow}>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>YEAR</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { color: C.text.primary, borderColor: C.background.divider, backgroundColor: C.background.elevated }]}
+                    value={truckYearInput}
+                    onChangeText={setTruckYearInput}
+                    placeholder="e.g. 2019"
+                    placeholderTextColor={C.text.tertiary}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                  />
+                </View>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={styles.fieldLabel}>REGISTRATION</Text>
+                  <TextInput
+                    style={[styles.fieldInput, { color: C.text.primary, borderColor: C.background.divider, backgroundColor: C.background.elevated }]}
+                    value={truckRegInput}
+                    onChangeText={setTruckRegInput}
+                    placeholder="e.g. ABC 1234"
+                    placeholderTextColor={C.text.tertiary}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                </View>
+              </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>CAPACITY (TONNES)</Text>
+                <View style={styles.capacityRow}>
+                  {TONNAGE_TIERS.map((t) => (
+                    <Pressable
+                      key={t}
+                      style={[styles.capacityPill, capacityInput === t && { backgroundColor: 'rgba(245,166,35,0.15)', borderColor: C.accent }]}
+                      onPress={() => setCapacityInput(t)}
+                    >
+                      <Text style={[styles.capacityPillText, { color: capacityInput === t ? C.accent : C.text.secondary }]}>{t}t</Text>
+                    </Pressable>
+                  ))}
                 </View>
               </View>
             </View>
@@ -372,6 +460,14 @@ function getStyles(C: ColorPalette) {
     // Edit fields
     editFields: { width: '100%', gap: Spacing.gap },
     fieldGroup: { gap: 6 },
+    fieldRow: { flexDirection: 'row', gap: Spacing.gapSm },
+    fieldDivider: { height: 1, backgroundColor: C.background.divider, marginVertical: 4 },
+    fieldSectionLabel: {
+      fontSize: Typography.sizes.eyebrow,
+      fontWeight: '600',
+      letterSpacing: 1.2,
+      color: C.text.tertiary,
+    },
     fieldLabel: {
       fontSize: Typography.sizes.eyebrow,
       fontWeight: '600',
@@ -400,6 +496,18 @@ function getStyles(C: ColorPalette) {
       fontSize: Typography.sizes.chip,
       color: C.text.tertiary,
     },
+    capacityRow: { flexDirection: 'row', gap: Spacing.gapSm, flexWrap: 'wrap' },
+    capacityPill: {
+      height: Components.pillHeight,
+      paddingHorizontal: 14,
+      borderRadius: Radius.pill,
+      borderWidth: 1,
+      borderColor: C.background.divider,
+      backgroundColor: C.background.elevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    capacityPillText: { fontSize: Typography.sizes.chip, fontWeight: Typography.weights.semibold },
 
     // Section
     section: { gap: 8 },

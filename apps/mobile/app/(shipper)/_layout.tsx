@@ -59,6 +59,19 @@ export default function ShipperLayout() {
         }}
       />
       <Tabs.Screen
+        name="notifications/index"
+        options={{
+          tabBarLabel: "Notifications",
+          tabBarIcon: ({ focused, color }) => (
+            <Ionicons
+              name={focused ? "notifications" : "notifications-outline"}
+              size={24}
+              color={color}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile/index"
         options={{
           tabBarLabel: "Profile",
@@ -96,9 +109,9 @@ function getStyles(C: ColorPalette) {
       paddingTop: 6,
     },
     tabLabel: {
-      fontFamily: "SourceSans3_700Bold",
-      fontSize: Typography.sizes.label,
-      letterSpacing: 0.1,
+      fontFamily: "DMSans_700Bold",
+      fontSize: 13,
+      letterSpacing: 0,
       marginTop: 2,
     },
   });

@@ -71,6 +71,16 @@ export async function placeBid(jobId: string, driverId: string, offeredPrice: nu
     });
   }
 
+  const existingBid = await prisma.bid.findFirst({
+    where: { jobId, driverId, status: { in: ["PENDING", "COUNTERED"] } },
+  });
+  if (existingBid) {
+    throw Object.assign(new Error("You already have an active bid on this job"), {
+      statusCode: 400,
+      code: "DUPLICATE_BID",
+    });
+  }
+
   if (job.biddingExpiresAt && job.biddingExpiresAt < new Date()) {
     throw Object.assign(new Error("Bidding has expired for this job"), {
       statusCode: 400,
@@ -96,12 +106,12 @@ export async function placeBid(jobId: string, driverId: string, offeredPrice: nu
   const { jobsNs } = getSocketServer();
   jobsNs.to(`job:${jobId}`).emit("job:bid_received", { bid, driver: bid.driver });
 
-  await notifyShipper(
+  notifyShipper(
     job.shipperId,
     "New Bid Received",
     `New bid: $${offeredPrice} from ${driver.user.name} for your ${job.originAddress} → ${job.destAddress} load.`,
     { jobId, bidId: bid.id },
-  );
+  ).catch((err) => console.error("[placeBid] notification error (non-fatal):", err));
 
   return bid;
 }
@@ -147,16 +157,43 @@ export async function acceptBid(bidId: string, shipperUserId: string) {
     bid,
   });
 
-  await notifyDriver(
-    bid.driverId,
-    "You got the load!",
-    `You got the load! Head to pickup at ${bid.job.originAddress}.`,
-    { jobId: bid.jobId },
-  );
-
-  await smsMatchConfirmedDriver(bid.driver.user.phone, bid.job.originAddress);
+  // Notifications are fire-and-forget — match is already committed above
+  Promise.all([
+    notifyDriver(
+      bid.driverId,
+      "You got the load!",
+      `You got the load! Head to pickup at ${bid.job.originAddress}.`,
+      { jobId: bid.jobId },
+    ),
+    smsMatchConfirmedDriver(bid.driver.user.phone, bid.job.originAddress),
+  ]).catch((err) => console.error("[acceptBid] notification error (non-fatal):", err));
 
   return updatedJob;
+}
+
+export async function rejectBid(bidId: string, shipperUserId: string) {
+  const bid = await prisma.bid.findUnique({
+    where: { id: bidId },
+    include: { job: { include: { shipper: true } } },
+  });
+
+  if (!bid) throw Object.assign(new Error("Bid not found"), { statusCode: 404, code: "BID_NOT_FOUND" });
+  if (bid.job.shipper.userId !== shipperUserId) {
+    throw Object.assign(new Error("Forbidden"), { statusCode: 403, code: "FORBIDDEN" });
+  }
+  if (!["PENDING", "COUNTERED"].includes(bid.status)) {
+    throw Object.assign(new Error("Bid cannot be rejected in its current state"), {
+      statusCode: 400,
+      code: "INVALID_BID_STATUS",
+    });
+  }
+
+  const updated = await prisma.bid.update({ where: { id: bidId }, data: { status: "REJECTED" } });
+
+  const { jobsNs } = getSocketServer();
+  jobsNs.to(`job:${bid.jobId}`).emit("job:bid_status_updated", { bid: updated });
+
+  return updated;
 }
 
 export async function counterBid(bidId: string, userId: string, newPrice: number) {
@@ -182,6 +219,16 @@ export async function counterBid(bidId: string, userId: string, newPrice: number
   jobsNs.to(`job:${bid.jobId}`).emit("job:bid_status_updated", { bid: updated });
 
   return updated;
+}
+
+export async function getMyBids(driverId: string) {
+  return prisma.bid.findMany({
+    where: { driverId, status: { in: ["PENDING", "COUNTERED"] } },
+    orderBy: { createdAt: "desc" },
+    include: {
+      job: true,
+    },
+  });
 }
 
 export async function getJobBids(jobId: string) {

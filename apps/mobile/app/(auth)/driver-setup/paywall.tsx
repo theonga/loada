@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View, Pressable, StyleSheet, ScrollView,
   TextInput, ActivityIndicator,
@@ -46,6 +46,16 @@ export default function DriverPaywallScreen() {
   const [error, setError] = useState('');
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  useEffect(() => {
+    getMySubscription()
+      .then((sub) => {
+        if (sub?.status === 'ACTIVE' || sub?.status === 'TRIAL') {
+          router.replace('/(driver)');
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // ─── EcoCash / OneMoney flow ─────────────────────────────────────────────────
 

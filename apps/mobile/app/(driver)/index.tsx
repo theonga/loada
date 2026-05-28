@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { View, Pressable, StyleSheet, Switch } from 'react-native';
+import type MapView from 'react-native-maps';
 import { Text } from '@components/ui/Text';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +12,8 @@ import { useLocationStore } from '@store/location.store';
 import { useJobStore } from '@store/job.store';
 import { JobStatus } from '@constants/index';
 import { useDriverHeartbeat } from '@hooks/useDriverHeartbeat';
+import { useCurrentLocation } from '@hooks/useCurrentLocation';
+import { getAvailableLoads } from '@services';
 
 export default function DriverHomeScreen() {
   const router = useRouter();
@@ -18,10 +21,39 @@ export default function DriverHomeScreen() {
   const { isOnline, setOnline, driverLocation } = useLocationStore();
   const activeJob = useJobStore((s) => s.activeJob);
   const firstName = user?.name.split(' ')[0] ?? 'Driver';
+  const [loadsCount, setLoadsCount] = useState<number | null>(null);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
   useDriverHeartbeat();
+
+  const mapRef = useRef<MapView>(null);
+  const { location: currentLocation } = useCurrentLocation();
+
+  useEffect(() => {
+    if (!isOnline) { setLoadsCount(null); return; }
+    getAvailableLoads(user?.id ?? '')
+      .then((jobs) => setLoadsCount(jobs.length))
+      .catch(() => setLoadsCount(null));
+  }, [isOnline]);
+
+  // Animate to GPS position on first load if the heartbeat hasn't populated driverLocation yet
+  useEffect(() => {
+    if (!currentLocation || driverLocation) return;
+    mapRef.current?.animateToRegion(
+      { latitude: currentLocation.lat, longitude: currentLocation.lng, latitudeDelta: 0.04, longitudeDelta: 0.04 },
+      800,
+    );
+  }, [currentLocation, driverLocation]);
+
+  // Follow the driver's position as it updates from the heartbeat
+  useEffect(() => {
+    if (!driverLocation) return;
+    mapRef.current?.animateToRegion(
+      { latitude: driverLocation.lat, longitude: driverLocation.lng, latitudeDelta: 0.04, longitudeDelta: 0.04 },
+      600,
+    );
+  }, [driverLocation]);
 
   const showActiveJob =
     activeJob != null &&
@@ -32,14 +64,7 @@ export default function DriverHomeScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.mapContainer}>
-        <MapBg
-          initialRegion={driverLocation ? {
-            latitude: driverLocation.lat,
-            longitude: driverLocation.lng,
-            latitudeDelta: 0.04,
-            longitudeDelta: 0.04,
-          } : undefined}
-        >
+        <MapBg mapRef={mapRef}>
           {isOnline && (
             <>
               <View style={styles.pinLoad1}><MapPin kind="load" label="10t" /></View>
@@ -89,7 +114,13 @@ export default function DriverHomeScreen() {
           >
             <Text style={styles.loadsBtnText}>Browse loads near me</Text>
             <Text style={styles.loadsBtnCount}>
-              {isOnline ? '3 available' : 'Go online to see loads'}
+              {isOnline
+                ? loadsCount === null
+                  ? 'Loading…'
+                  : loadsCount === 0
+                    ? 'No loads near you right now'
+                    : `${loadsCount} load${loadsCount === 1 ? '' : 's'} available`
+                : 'Go online to see loads'}
             </Text>
           </Pressable>
         </View>

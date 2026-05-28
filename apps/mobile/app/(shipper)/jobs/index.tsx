@@ -1,5 +1,6 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { View, FlatList, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import { Text } from '@components/ui/Text';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,13 +12,14 @@ import { useAuthStore } from '@store/auth.store';
 import { JobStatus } from '@constants/index';
 import type { Job } from '@/types';
 
-type TabKey = 'ALL' | 'BIDDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+type TabKey = 'ALL' | 'BIDDING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED' | 'EXPIRED';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'ALL', label: 'All' },
   { key: 'BIDDING', label: 'Bidding' },
   { key: 'ACTIVE', label: 'Active' },
   { key: 'COMPLETED', label: 'Completed' },
+  { key: 'EXPIRED', label: 'Expired' },
   { key: 'CANCELLED', label: 'Cancelled' },
 ];
 
@@ -35,6 +37,16 @@ const BIDDING_STATUSES: JobStatus[] = [
   JobStatus.BIDDING,
   JobStatus.RADIUS_EXPANDED,
 ];
+
+function isExpired(job: Job): boolean {
+  if (job.status === JobStatus.EXPIRED) return true;
+  // Fallback for jobs whose worker hasn't run yet
+  return (
+    BIDDING_STATUSES.includes(job.status) &&
+    job.biddingExpiresAt != null &&
+    new Date(job.biddingExpiresAt) < new Date()
+  );
+}
 
 export default function ShipperJobsScreen() {
   const router = useRouter();
@@ -57,28 +69,30 @@ export default function ShipperJobsScreen() {
     }
   }, [user?.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const filtered = useMemo(() => {
     if (activeTab === 'ALL') return jobs;
-    if (activeTab === 'BIDDING') return jobs.filter((j) => BIDDING_STATUSES.includes(j.status));
+    if (activeTab === 'BIDDING') return jobs.filter((j) => BIDDING_STATUSES.includes(j.status) && !isExpired(j));
     if (activeTab === 'ACTIVE') return jobs.filter((j) => ACTIVE_STATUSES.includes(j.status));
     if (activeTab === 'COMPLETED') return jobs.filter((j) => j.status === JobStatus.COMPLETED);
+    if (activeTab === 'EXPIRED') return jobs.filter(isExpired);
     if (activeTab === 'CANCELLED') return jobs.filter((j) => j.status === JobStatus.CANCELLED);
     return jobs;
   }, [jobs, activeTab]);
 
   const countFor = (tab: TabKey) => {
     if (tab === 'ALL') return jobs.length;
-    if (tab === 'BIDDING') return jobs.filter((j) => BIDDING_STATUSES.includes(j.status)).length;
+    if (tab === 'BIDDING') return jobs.filter((j) => BIDDING_STATUSES.includes(j.status) && !isExpired(j)).length;
     if (tab === 'ACTIVE') return jobs.filter((j) => ACTIVE_STATUSES.includes(j.status)).length;
     if (tab === 'COMPLETED') return jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
+    if (tab === 'EXPIRED') return jobs.filter(isExpired).length;
     if (tab === 'CANCELLED') return jobs.filter((j) => j.status === JobStatus.CANCELLED).length;
     return 0;
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Text style={styles.title}>My Jobs</Text>
         <Text style={styles.sub}>{jobs.length} total</Text>
@@ -129,13 +143,14 @@ export default function ShipperJobsScreen() {
             <LoadCard
               job={item}
               onPress={() => {
-                if (BIDDING_STATUSES.includes(item.status)) {
+                if (BIDDING_STATUSES.includes(item.status) && !isExpired(item)) {
                   router.push(`/(shipper)/bids/${item.id}`);
                 } else if (item.status === JobStatus.DELIVERED || item.status === JobStatus.COMPLETED) {
                   router.push(`/(shipper)/delivery/${item.id}`);
-                } else {
+                } else if (ACTIVE_STATUSES.includes(item.status)) {
                   router.push(`/(shipper)/tracking/${item.id}`);
                 }
+                // expired jobs are tappable but no destination yet
               }}
             />
           )}
@@ -209,7 +224,7 @@ function getStyles(C: ColorPalette) {
     },
 
     skeletons: { padding: Spacing.screenH, gap: Spacing.gap },
-    list: { padding: Spacing.screenH, gap: Spacing.gap },
+    list: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: Spacing.section },
     sep: { height: Spacing.gap },
     empty: { flex: 1, paddingTop: 64, alignItems: 'center' },
     emptyText: { textAlign: 'center', color: C.text.tertiary, fontSize: Typography.sizes.body },

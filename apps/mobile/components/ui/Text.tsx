@@ -2,13 +2,14 @@ import React from 'react';
 import { Text as RNText, TextProps, StyleSheet, TextStyle } from 'react-native';
 
 const weightToFamily: Record<string, string> = {
-  '300': 'OpenSans_300Light',
-  '400': 'OpenSans_400Regular',
-  '500': 'OpenSans_500Medium',
-  '600': 'OpenSans_600SemiBold',
-  '700': 'OpenSans_700Bold',
-  bold: 'OpenSans_700Bold',
-  normal: 'OpenSans_400Regular',
+  '300': 'DMSans_300Light',
+  '400': 'DMSans_400Regular',
+  '500': 'DMSans_500Medium',
+  '600': 'DMSans_600SemiBold',
+  '700': 'DMSans_700Bold',
+  '800': 'DMSans_800ExtraBold',
+  bold: 'DMSans_700Bold',
+  normal: 'DMSans_400Regular',
 };
 
 export function Text({ style, ...props }: TextProps) {
@@ -17,6 +18,6 @@ export function Text({ style, ...props }: TextProps) {
     return <RNText {...props} style={style} />;
   }
   const weight = String(flat?.fontWeight ?? '400');
-  const fontFamily = weightToFamily[weight] ?? 'OpenSans_400Regular';
-  return <RNText {...props} style={[style, { fontFamily }]} />;
+  const fontFamily = weightToFamily[weight] ?? 'DMSans_400Regular';
+  return <RNText {...props} style={[style, { fontFamily, fontWeight: 'normal' }]} />;
 }

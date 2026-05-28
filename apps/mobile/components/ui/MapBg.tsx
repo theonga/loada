@@ -11,9 +11,10 @@ interface MapBgProps {
     longitudeDelta: number;
   };
   routePoints?: Array<{ latitude: number; longitude: number }>;
+  mapRef?: React.RefObject<MapView | null>;
 }
 
-const DARK_MAP_STYLE = [
+export const DARK_MAP_STYLE = [
   { elementType: 'geometry', stylers: [{ color: '#0a0a0a' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#4a4a4a' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#0a0a0a' }] },
@@ -33,7 +34,6 @@ const DARK_MAP_STYLE = [
   { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#0e0e0e' }] },
 ];
 
-// Default to Harare city centre
 const DEFAULT_REGION = {
   latitude: -17.8252,
   longitude: 31.0335,
@@ -41,10 +41,11 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.0421,
 };
 
-export function MapBg({ children, initialRegion, routePoints }: MapBgProps) {
+export function MapBg({ children, initialRegion, routePoints, mapRef }: MapBgProps) {
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         provider={PROVIDER_GOOGLE}
         style={StyleSheet.absoluteFillObject}
         initialRegion={initialRegion ?? DEFAULT_REGION}

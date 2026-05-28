@@ -28,6 +28,7 @@ export enum JobStatus {
   COMPLETED = 'COMPLETED',
   CANCELLED = 'CANCELLED',
   DISPUTED = 'DISPUTED',
+  EXPIRED = 'EXPIRED',
 }
 
 export enum BidStatus {

@@ -12,7 +12,9 @@ import { BidCard } from '@components/ui/BidCard';
 import { CountdownBar } from '@components/ui/CountdownBar';
 import { Pill } from '@components/ui/Pill';
 import { Skeleton } from '@components/ui/Skeleton';
-import { getJobById, getJobBids, acceptBid, cancelJob } from '@services';
+import { ScreenError } from '@components/ui/ScreenError';
+import { getJobById, getJobBids, acceptBid, rejectBid, cancelJob } from '@services';
+import { isAuthError } from '@services/api';
 import { showError, showConfirm } from '@components/ui/AppAlert';
 import { useJobStore } from '@store/job.store';
 import { useLiveBids } from '@hooks/useLiveBids';
@@ -27,18 +29,26 @@ export default function BidInboxScreen() {
   const [job, setJob] = useState<Job | null>(null);
   const [bids, setBids] = useState<Bid[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [radiusExpanded, setRadiusExpanded] = useState(false);
+  const [acceptingBidId, setAcceptingBidId] = useState<string | null>(null);
+  const [rejectingBidId, setRejectingBidId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState('');
   const setActiveJob = useJobStore((s) => s.setActiveJob);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!jobId) return;
+    setLoading(true);
+    setError('');
     Promise.all([getJobById(jobId), getJobBids(jobId)])
       .then(([j, b]) => { setJob(j); setBids(b); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch((err) => { if (!isAuthError(err)) setError((err as Error).message ?? 'Failed to load'); setLoading(false); });
   }, [jobId]);
+
+  useEffect(() => { load(); }, [load]);
 
   useLiveBids(
     jobId,
@@ -52,19 +62,33 @@ export default function BidInboxScreen() {
   );
 
   const handleAccept = useCallback(async (bidId: string) => {
+    setAcceptingBidId(bidId);
+    setActionError('');
     try {
       const updatedJob = await acceptBid(bidId);
       setActiveJob(updatedJob);
       router.replace(`/(shipper)/match/${updatedJob.id}`);
-    } catch {
-      showError('Something went wrong accepting the bid. Please try again.');
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ?? 'Could not accept bid. Please try again.';
+      setActionError(msg);
+    } finally {
+      setAcceptingBidId(null);
     }
   }, [setActiveJob, router]);
 
-  const handleCounter = useCallback((_bidId: string) => {
-    if (!job) return;
-    router.push(`/(shared)/chat/${job.id}`);
-  }, [job, router]);
+  const handleReject = useCallback(async (bidId: string) => {
+    setRejectingBidId(bidId);
+    setActionError('');
+    try {
+      await rejectBid(bidId);
+      setBids((prev) => prev.filter((b) => b.id !== bidId));
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ?? 'Could not reject bid. Please try again.';
+      setActionError(msg);
+    } finally {
+      setRejectingBidId(null);
+    }
+  }, []);
 
   const confirmCancel = useCallback(() => {
     showConfirm({
@@ -107,6 +131,14 @@ export default function BidInboxScreen() {
           <Skeleton width="100%" height={110} borderRadius={12} />
           <Skeleton width="100%" height={110} borderRadius={12} />
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScreenError message={error} onRetry={load} onBack={() => router.back()} />
       </SafeAreaView>
     );
   }
@@ -179,6 +211,17 @@ export default function BidInboxScreen() {
         <Pill active={view === 'terminal'} onPress={() => setView('terminal')}>Terminal</Pill>
       </View>
 
+      {/* Inline action error */}
+      {actionError !== '' && (
+        <View style={[styles.banner, { backgroundColor: 'rgba(244,67,54,0.08)', borderColor: 'rgba(244,67,54,0.20)', marginBottom: 4 }]}>
+          <Ionicons name="alert-circle-outline" size={13} color={C.status.red} />
+          <Text style={[styles.bannerText, { color: C.status.red }]}>{actionError}</Text>
+          <Pressable onPress={() => setActionError('')} hitSlop={8}>
+            <Ionicons name="close" size={14} color={C.status.red} />
+          </Pressable>
+        </View>
+      )}
+
       {/* Content */}
       {view === 'list' ? (
         <ScrollView
@@ -194,8 +237,9 @@ export default function BidInboxScreen() {
                 bid={bid}
                 isBestMatch={i === 0}
                 onAccept={() => handleAccept(bid.id)}
-                onCounter={() => handleCounter(bid.id)}
-                onSkip={() => {}}
+                onReject={() => handleReject(bid.id)}
+                acceptLoading={acceptingBidId === bid.id}
+                rejectLoading={rejectingBidId === bid.id}
               />
             ))
           )}

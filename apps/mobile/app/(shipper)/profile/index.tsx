@@ -63,7 +63,6 @@ export default function ShipperProfileScreen() {
   const completedJobs = jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
 
   const menuItems: { label: string; icon: IoniconName; onPress: () => void }[] = [
-    { label: 'Notifications', icon: 'notifications-outline', onPress: () => router.push('/(shared)/notifications') },
     { label: 'Help & support', icon: 'help-circle-outline', onPress: () => router.push('/(shared)/help') },
     { label: 'Settings', icon: 'settings-outline', onPress: () => router.push('/(shared)/settings') },
   ];

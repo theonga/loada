@@ -1,5 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { View, Pressable, StyleSheet } from 'react-native';
+import type MapView from 'react-native-maps';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -10,6 +11,7 @@ import { useJobStore } from '@store/job.store';
 import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
 import { JobStatus } from '@constants/index';
+import { useCurrentLocation } from '@hooks/useCurrentLocation';
 
 export default function ShipperHomeScreen() {
   const router = useRouter();
@@ -19,16 +21,42 @@ export default function ShipperHomeScreen() {
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
+  const mapRef = useRef<MapView>(null);
+  const { location } = useCurrentLocation();
+
+  useEffect(() => {
+    if (!location) return;
+    mapRef.current?.animateToRegion(
+      { latitude: location.lat, longitude: location.lng, latitudeDelta: 0.04, longitudeDelta: 0.04 },
+      800,
+    );
+  }, [location]);
+
+  const biddingExpired =
+    activeJob != null &&
+    (activeJob.status === JobStatus.EXPIRED ||
+      ([JobStatus.POSTED, JobStatus.BIDDING, JobStatus.RADIUS_EXPANDED].includes(activeJob.status) &&
+        activeJob.biddingExpiresAt != null &&
+        new Date(activeJob.biddingExpiresAt) < new Date()));
+
   const showActiveJob =
     activeJob != null &&
-    [JobStatus.BIDDING, JobStatus.MATCHED, JobStatus.IN_TRANSIT, JobStatus.PICKUP_EN_ROUTE].includes(
-      activeJob.status,
-    );
+    !biddingExpired &&
+    [
+      JobStatus.POSTED,
+      JobStatus.BIDDING,
+      JobStatus.RADIUS_EXPANDED,
+      JobStatus.MATCHED,
+      JobStatus.PICKUP_EN_ROUTE,
+      JobStatus.PICKUP_ARRIVED,
+      JobStatus.LOADED,
+      JobStatus.IN_TRANSIT,
+    ].includes(activeJob.status);
 
   return (
     <View style={styles.container}>
       <View style={styles.mapContainer}>
-        <MapBg>
+        <MapBg mapRef={mapRef}>
           <View style={styles.pin1}><MapPin kind="me" /></View>
           <View style={styles.pin2}><MapPin kind="driver" scale={0.85} /></View>
           <View style={styles.pin3}><MapPin kind="driver" scale={0.85} /></View>
@@ -56,19 +84,40 @@ export default function ShipperHomeScreen() {
       <View style={styles.bottomArea}>
           {showActiveJob && activeJob && (
             <Pressable
-              style={styles.activeJobChip}
+              style={styles.activeJobCard}
               onPress={() => {
-                if (activeJob.status === JobStatus.BIDDING || activeJob.status === JobStatus.POSTED) {
+                const biddingStatuses = [JobStatus.POSTED, JobStatus.BIDDING, JobStatus.RADIUS_EXPANDED];
+                if (biddingStatuses.includes(activeJob.status)) {
                   router.push(`/(shipper)/bids/${activeJob.id}`);
                 } else {
                   router.push(`/(shipper)/tracking/${activeJob.id}`);
                 }
               }}
             >
-              <Text style={styles.chipRoute} numberOfLines={1}>
-                {activeJob.originAddress.split(',')[0]} → {activeJob.destAddress.split(',')[0]}
-              </Text>
-              <Text style={styles.chipStatus}>{activeJob.status}</Text>
+              <View style={styles.activeJobLeft}>
+                <View style={styles.activeDot} />
+                <View style={styles.activeJobInfo}>
+                  <Text style={styles.activeJobRoute} numberOfLines={1}>
+                    {activeJob.originAddress.split(',')[0]} → {activeJob.destAddress.split(',')[0]}
+                  </Text>
+                  <Text style={styles.activeJobStatus}>
+                    {activeJob.status === JobStatus.POSTED || activeJob.status === JobStatus.BIDDING
+                      ? 'Waiting for bids…'
+                      : activeJob.status === JobStatus.RADIUS_EXPANDED
+                        ? 'Expanding search…'
+                        : activeJob.status === JobStatus.MATCHED
+                          ? 'Driver matched'
+                          : activeJob.status === JobStatus.PICKUP_EN_ROUTE
+                            ? 'Driver en route'
+                            : activeJob.status === JobStatus.IN_TRANSIT
+                              ? 'In transit'
+                              : activeJob.status}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.activeJobArrow}>
+                <Ionicons name="chevron-forward" size={16} color={C.accent} />
+              </View>
             </Pressable>
           )}
 
@@ -124,16 +173,23 @@ function getStyles(C: ColorPalette) {
       backgroundColor: C.accent, borderWidth: 1.5, borderColor: C.background.card,
     },
     bottomArea: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: Spacing.screenH, gap: Spacing.gap } as never,
-    activeJobsRow: { paddingBottom: 4, gap: Spacing.gapSm },
-    activeJobChip: {
-      backgroundColor: 'rgba(20,20,20,0.92)',
-      borderRadius: Radius.button,
+    activeJobCard: {
+      backgroundColor: C.background.card,
+      borderRadius: Radius.card,
       borderWidth: 1,
-      borderColor: C.background.divider,
-      paddingHorizontal: 12, paddingVertical: 8,
+      borderColor: 'rgba(245,166,35,0.30)',
+      paddingHorizontal: Spacing.card,
+      paddingVertical: 12,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
     },
-    chipRoute: { fontSize: Typography.sizes.chip, color: C.text.primary, fontWeight: Typography.weights.medium },
-    chipStatus: { fontSize: Typography.sizes.micro, color: C.text.tertiary, marginTop: 2 },
+    activeJobLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+    activeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent },
+    activeJobInfo: { flex: 1 },
+    activeJobRoute: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
+    activeJobStatus: { fontSize: Typography.sizes.chip, color: C.accent, marginTop: 2 },
+    activeJobArrow: { width: 28, height: 28, borderRadius: 14, backgroundColor: 'rgba(245,166,35,0.12)', alignItems: 'center', justifyContent: 'center' },
     promptCard: {
       backgroundColor: C.background.card,
       borderRadius: Radius.card,

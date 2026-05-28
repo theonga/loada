@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { View, TextInput, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
+import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -26,7 +27,7 @@ export default function NameScreen() {
       await updateProfile(name.trim());
       updateName(name.trim());
       if (role === 'driver') {
-        router.replace('/(auth)/driver-setup/documents');
+        router.replace('/(auth)/driver-setup/vehicle');
       } else {
         router.replace('/(shipper)');
       }

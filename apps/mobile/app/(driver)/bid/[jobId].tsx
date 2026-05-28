@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, TextInput, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -45,8 +46,8 @@ export default function PlaceBidScreen() {
     setSubmitting(true);
     setError('');
     try {
-      await placeBid(job.id, numPrice);
-      router.replace(`/(driver)/match/${job.id}`);
+      const bid = await placeBid(job.id, numPrice);
+      router.replace(`/(driver)/bid/pending/${bid.id}?jobId=${job.id}`);
     } catch (err) {
       setError((err as { message?: string }).message ?? 'Could not place bid. Try again.');
       setSubmitting(false);
@@ -55,7 +56,7 @@ export default function PlaceBidScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.appbar}>
           <Pressable onPress={() => router.back()} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={24} color={C.text.primary} />
@@ -73,7 +74,7 @@ export default function PlaceBidScreen() {
 
   if (!job) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <Text style={{ color: C.text.secondary, textAlign: 'center', marginTop: 40 }}>
           {error || 'Job not found.'}
         </Text>
@@ -82,7 +83,7 @@ export default function PlaceBidScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={C.text.primary} />

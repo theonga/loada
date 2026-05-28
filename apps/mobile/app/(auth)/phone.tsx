@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { View, TextInput, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet, Keyboard } from 'react-native';
+import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -23,6 +24,15 @@ export default function PhoneScreen() {
 
   const isValid = phone.replace(/\s/g, '').length >= country.minDigits;
 
+  const handlePhoneChange = (text: string) => {
+    // Strip leading zero — users often type 0773... instead of 773...
+    const cleaned = text.replace(/\D/g, '').replace(/^0+/, '');
+    setPhone(cleaned);
+    if (cleaned.length >= country.minDigits) {
+      Keyboard.dismiss();
+    }
+  };
+
   const handleContinue = async () => {
     if (!isValid) return;
     const digits = phone.replace(/\D/g, '');
@@ -30,9 +40,9 @@ export default function PhoneScreen() {
     setLoading(true);
     setError('');
     try {
-      await sendOTP(fullPhone);
+      const { devOtp } = await sendOTP(fullPhone);
       setPendingPhone(fullPhone);
-      router.push('/(auth)/otp');
+      router.push({ pathname: '/(auth)/otp', params: devOtp ? { devCode: devOtp } : {} });
     } catch {
       setError('Could not send code. Check your number and try again.');
     } finally {
@@ -60,8 +70,8 @@ export default function PhoneScreen() {
             placeholderTextColor={C.text.tertiary}
             keyboardType="phone-pad"
             value={phone}
-            onChangeText={setPhone}
-            maxLength={15}
+            onChangeText={handlePhoneChange}
+            maxLength={country.minDigits}
             autoFocus
           />
         </View>

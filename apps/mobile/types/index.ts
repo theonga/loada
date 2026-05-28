@@ -60,6 +60,7 @@ export interface Job {
   searchRadiusKm: number;
   biddingExpiresAt?: string;
   matchedDriverId?: string;
+  matchedDriverName?: string;
   bidCount: number;
   distanceKm: number;
   estimatedHours: number;
@@ -80,6 +81,7 @@ export interface Bid {
   distanceKm?: number | null;
   etaMinutes?: number | null;
   createdAt: string;
+  job?: Job;
 }
 
 export interface RoutePoint {

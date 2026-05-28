@@ -199,6 +199,7 @@ enum JobStatus {
   COMPLETED
   CANCELLED
   DISPUTED
+  EXPIRED
 }
 
 enum BidStatus {

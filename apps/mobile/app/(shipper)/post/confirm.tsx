@@ -8,6 +8,7 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { Chip } from '@components/ui/Chip';
 import { useDraftJobStore } from '@store/draftJob.store';
+import { useJobStore } from '@store/job.store';
 import { postJob } from '@services';
 
 export default function PostConfirmScreen() {
@@ -15,6 +16,7 @@ export default function PostConfirmScreen() {
   const complete = useDraftJobStore((s) => s.complete);
   const reset = useDraftJobStore((s) => s.reset);
   const draft = complete();
+  const setActiveJob = useJobStore((s) => s.setActiveJob);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const C = useColors();
@@ -38,6 +40,7 @@ export default function PostConfirmScreen() {
         askingPrice: draft.askingPrice,
         currency: draft.currency,
       });
+      setActiveJob(job);
       reset();
       router.replace(`/(shipper)/bids/${job.id}`);
     } catch (e: unknown) {
@@ -48,7 +51,7 @@ export default function PostConfirmScreen() {
 
   if (!draft) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: Spacing.screenH }}>
           <Text style={{ color: C.text.secondary, textAlign: 'center' }}>
             Incomplete load details. Please go back and fill in all steps.
@@ -62,7 +65,7 @@ export default function PostConfirmScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={C.text.primary} />

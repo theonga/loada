@@ -15,13 +15,35 @@ interface ApiError {
 
 type ApiResponse<T> = ApiSuccess<T> | ApiError;
 
-// Guards against multiple simultaneous refresh attempts
-let isRefreshing = false;
+// Shared refresh promise — all concurrent 401s wait on the same attempt
+let refreshPromise: Promise<boolean> | null = null;
+
+async function attemptRefresh(): Promise<boolean> {
+  const store = useAuthStore.getState();
+  if (!store.refreshToken || !store.user) return false;
+  try {
+    const res = await fetch(`${BASE_URL}/v1/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: store.user.id, refreshToken: store.refreshToken }),
+    });
+    const json = (await res.json()) as ApiResponse<{ accessToken: string; refreshToken: string }>;
+    if (json.success && json.data) {
+      store.setToken(json.data.accessToken);
+      store.setRefreshToken(json.data.refreshToken);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const store = useAuthStore.getState();
 
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {};
+  if (body != null) headers['Content-Type'] = 'application/json';
   if (store.token) headers['Authorization'] = `Bearer ${store.token}`;
 
   const controller = new AbortController();
@@ -47,30 +69,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   const json = (await res.json()) as ApiResponse<T>;
 
   if (!json.success) {
-    // On 401: attempt token refresh once, then retry the original request
-    if (res.status === 401 && !isRefreshing && store.refreshToken && store.user) {
-      isRefreshing = true;
-      try {
-        const refreshRes = await fetch(`${BASE_URL}/v1/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: store.user.id, refreshToken: store.refreshToken }),
-        });
-        const refreshJson = (await refreshRes.json()) as ApiResponse<{
-          accessToken: string;
-          refreshToken: string;
-        }>;
-        if (refreshJson.success && refreshJson.data) {
-          store.setToken(refreshJson.data.accessToken);
-          store.setRefreshToken(refreshJson.data.refreshToken);
-          isRefreshing = false;
-          return request<T>(method, path, body);
-        }
-      } catch {
-        // Refresh network error — fall through to logout
+    if (res.status === 401 && useAuthStore.getState().refreshToken) {
+      // All concurrent 401s share a single refresh attempt
+      if (!refreshPromise) {
+        refreshPromise = attemptRefresh().finally(() => { refreshPromise = null; });
       }
-      isRefreshing = false;
-      store.logout();
+      const refreshed = await refreshPromise;
+      if (refreshed) {
+        return request<T>(method, path, body);
+      }
+      useAuthStore.getState().logout();
       throw Object.assign(new Error('Session expired. Please log in again.'), {
         code: 'UNAUTHORIZED',
         statusCode: 401,
@@ -93,3 +101,8 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>('PATCH', path, body),
   del: <T>(path: string) => request<T>('DELETE', path),
 };
+
+export function isAuthError(err: unknown): boolean {
+  const e = err as { code?: string; statusCode?: number } | null;
+  return e?.code === 'UNAUTHORIZED' || e?.statusCode === 401 || e?.statusCode === 403;
+}

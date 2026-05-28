@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import {
-  View, TextInput, Pressable, FlatList, StyleSheet,
+  View, Pressable, FlatList, StyleSheet,
   ActivityIndicator, Platform, Keyboard, Animated,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE, PROVIDER_DEFAULT } from 'react-native-maps';
+import { TextInput } from '@components/ui/TextInput';
+import type { TextInput as NativeTextInput } from 'react-native';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, PROVIDER_DEFAULT } from 'react-native-maps';
 import Constants from 'expo-constants';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@components/ui/Text';
@@ -14,7 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { useDraftJobStore } from '@store/draftJob.store';
-import { getPlaceSuggestions, getPlaceDetails, reverseGeocodePlace, type PlacePrediction } from '@services';
+import { getPlaceSuggestions, getPlaceDetails, reverseGeocodePlace, getFrequentLocations, type PlacePrediction, type FrequentLocation } from '@services';
+import { useCurrentLocation } from '@hooks/useCurrentLocation';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -32,6 +35,37 @@ function fitRegion(a: { lat: number; lng: number }, b: { lat: number; lng: numbe
     latitudeDelta: latDelta,
     longitudeDelta: lngDelta,
   };
+}
+
+function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
+  const result: { latitude: number; longitude: number }[] = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b = 0, shift = 0, r = 0;
+    do { b = encoded.charCodeAt(index++) - 63; r |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += r & 1 ? ~(r >> 1) : r >> 1;
+    shift = 0; r = 0;
+    do { b = encoded.charCodeAt(index++) - 63; r |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += r & 1 ? ~(r >> 1) : r >> 1;
+    result.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return result;
+}
+
+async function fetchRoute(
+  originLat: number, originLng: number,
+  destLat: number, destLng: number,
+): Promise<{ latitude: number; longitude: number }[]> {
+  const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? '';
+  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&key=${key}`;
+  const res = await fetch(url);
+  const json = await res.json() as { routes?: Array<{ overview_polyline?: { points: string } }> };
+  const points = json.routes?.[0]?.overview_polyline?.points;
+  if (points) return decodePolyline(points);
+  return [
+    { latitude: originLat, longitude: originLng },
+    { latitude: destLat, longitude: destLng },
+  ];
 }
 
 function useDebounce<T>(value: T, ms: number): T {
@@ -74,7 +108,7 @@ export default function PostRouteScreen() {
   const { top: safeTop, bottom: safeBottom } = useSafeAreaInsets();
 
   const mapRef = useRef<MapView>(null);
-  const searchInputRef = useRef<TextInput>(null);
+  const searchInputRef = useRef<NativeTextInput>(null);
   const [sessiontoken] = useState(randomToken);
 
   // Overlay slide-up animation
@@ -96,6 +130,9 @@ export default function PostRouteScreen() {
   const [pinRegion, setPinRegion] = useState(HARARE);
   const [confirmingPin, setConfirmingPin] = useState(false);
 
+  // Route polyline
+  const [routePoints, setRoutePoints] = useState<{ latitude: number; longitude: number }[]>([]);
+
   // Selected places
   const [pickupText, setPickupText] = useState(draft.origin?.address?.split(',')[0] ?? '');
   const [dropoffText, setDropoffText] = useState(draft.dest?.address?.split(',')[0] ?? '');
@@ -105,6 +142,28 @@ export default function PostRouteScreen() {
   const [dropoffPlace, setDropoffPlace] = useState<SelectedPlace | null>(
     draft.dest?.address ? { address: draft.dest.address, lat: draft.dest.lat, lng: draft.dest.lng } : null,
   );
+
+  // Frequent locations
+  const [frequentLocs, setFrequentLocs] = useState<{ pickups: FrequentLocation[]; dropoffs: FrequentLocation[] }>({
+    pickups: [],
+    dropoffs: [],
+  });
+
+  useEffect(() => {
+    getFrequentLocations().then(setFrequentLocs).catch(() => undefined);
+  }, []);
+
+  // Current location — center map on first open if no draft route set
+  const { location: currentLocation } = useCurrentLocation();
+  useEffect(() => {
+    if (!currentLocation || pickupPlace || dropoffPlace) return;
+    mapRef.current?.animateToRegion(
+      { latitude: currentLocation.lat, longitude: currentLocation.lng, latitudeDelta: 0.08, longitudeDelta: 0.06 },
+      600,
+    );
+  // only run when currentLocation first resolves
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentLocation]);
 
   // Keyboard listeners for bottom card
   useEffect(() => {
@@ -129,16 +188,40 @@ export default function PostRouteScreen() {
     return () => { show.remove(); hide.remove(); };
   }, [kbOffset]);
 
-  // Animate map when places set
+  // Animate map and fetch route when places change
   useEffect(() => {
-    if (!pickupPlace && !dropoffPlace) return;
-    const region = pickupPlace
-      ? fitRegion(
-          { lat: pickupPlace.lat, lng: pickupPlace.lng },
-          dropoffPlace ? { lat: dropoffPlace.lat, lng: dropoffPlace.lng } : null,
-        )
-      : fitRegion({ lat: dropoffPlace!.lat, lng: dropoffPlace!.lng }, null);
-    mapRef.current?.animateToRegion(region, 400);
+    if (!pickupPlace && !dropoffPlace) { setRoutePoints([]); return; }
+
+    if (pickupPlace && dropoffPlace) {
+      // Fetch driving route, then fit both markers into view
+      fetchRoute(pickupPlace.lat, pickupPlace.lng, dropoffPlace.lat, dropoffPlace.lng)
+        .then((pts) => {
+          setRoutePoints(pts);
+          setTimeout(() => {
+            mapRef.current?.fitToCoordinates(
+              [
+                { latitude: pickupPlace.lat, longitude: pickupPlace.lng },
+                { latitude: dropoffPlace.lat, longitude: dropoffPlace.lng },
+              ],
+              { edgePadding: { top: 120, right: 40, bottom: 300, left: 40 }, animated: true },
+            );
+          }, 200);
+        })
+        .catch(() => {
+          setRoutePoints([]);
+          const region = fitRegion(
+            { lat: pickupPlace.lat, lng: pickupPlace.lng },
+            { lat: dropoffPlace.lat, lng: dropoffPlace.lng },
+          );
+          mapRef.current?.animateToRegion(region, 400);
+        });
+    } else {
+      // Only one place set — clear route and pan to it
+      setRoutePoints([]);
+      const place = pickupPlace ?? dropoffPlace!;
+      const region = fitRegion({ lat: place.lat, lng: place.lng }, null);
+      mapRef.current?.animateToRegion(region, 400);
+    }
   }, [pickupPlace, dropoffPlace]);
 
   // Suggestions fetch
@@ -192,6 +275,19 @@ export default function PostRouteScreen() {
     finally { setSelectingPlace(false); }
   }, [searchTarget, sessiontoken, closeSearch]);
 
+  // Handle frequent location tap — lat/lng already known, no Places API call needed
+  const handleFrequentSelect = useCallback((loc: FrequentLocation) => {
+    const place: SelectedPlace = { address: loc.address, lat: loc.lat, lng: loc.lng };
+    if (searchTarget === 'pickup') {
+      setPickupText(loc.address.split(',')[0]);
+      setPickupPlace(place);
+    } else {
+      setDropoffText(loc.address.split(',')[0]);
+      setDropoffPlace(place);
+    }
+    closeSearch();
+  }, [searchTarget, closeSearch]);
+
   // Enter pin-pick mode
   const enterPinMode = useCallback((target: 'pickup' | 'dropoff') => {
     closeSearch();
@@ -244,6 +340,10 @@ export default function PostRouteScreen() {
     outputRange: [800, 0],
   });
 
+  // Frequent locations for the current search target
+  const activeFrequentLocs = searchTarget === 'pickup' ? frequentLocs.pickups : frequentLocs.dropoffs;
+  const showFrequent = searchText.length < 2 && activeFrequentLocs.length > 0;
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -265,13 +365,20 @@ export default function PostRouteScreen() {
         toolbarEnabled={false}
         onRegionChangeComplete={(r) => setPinRegion(r)}
       >
+        {routePoints.length > 1 && !pinTarget && (
+          <Polyline
+            coordinates={routePoints}
+            strokeColor="#F5A623"
+            strokeWidth={3}
+          />
+        )}
         {pickupPlace && !pinTarget && (
-          <Marker coordinate={{ latitude: pickupPlace.lat, longitude: pickupPlace.lng }} anchor={{ x: 0.5, y: 1 }}>
+          <Marker coordinate={{ latitude: pickupPlace.lat, longitude: pickupPlace.lng }} anchor={{ x: 0.5, y: 1 }} tracksViewChanges={false}>
             <View style={styles.markerOrigin}><View style={styles.markerDot} /></View>
           </Marker>
         )}
         {dropoffPlace && !pinTarget && (
-          <Marker coordinate={{ latitude: dropoffPlace.lat, longitude: dropoffPlace.lng }} anchor={{ x: 0.5, y: 1 }}>
+          <Marker coordinate={{ latitude: dropoffPlace.lat, longitude: dropoffPlace.lng }} anchor={{ x: 0.5, y: 1 }} tracksViewChanges={false}>
             <View style={styles.markerDest}><View style={styles.markerDotAccent} /></View>
           </Marker>
         )}
@@ -407,7 +514,7 @@ export default function PostRouteScreen() {
                 color={searchTarget === 'pickup' ? C.text.secondary : C.accent}
               />
               <TextInput
-                ref={searchInputRef}
+                inputRef={searchInputRef}
                 style={[styles.overlayInput, { color: C.text.primary }]}
                 value={searchText}
                 onChangeText={(t) => setSearchText(t)}
@@ -443,6 +550,41 @@ export default function PostRouteScreen() {
           </Pressable>
 
           <View style={[styles.dividerRow, { backgroundColor: C.background.divider }]} />
+
+          {/* Frequent locations — shown before user starts typing */}
+          {showFrequent && (
+            <>
+              <Text style={[styles.freqEyebrow, { color: C.text.tertiary }]}>FREQUENT</Text>
+              {activeFrequentLocs.map((loc, i) => (
+                <Pressable
+                  key={`freq-${i}`}
+                  style={[
+                    styles.freqRow,
+                    i < activeFrequentLocs.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.background.divider },
+                  ]}
+                  onPress={() => handleFrequentSelect(loc)}
+                >
+                  <View style={[styles.freqIcon, { backgroundColor: C.background.elevated }]}>
+                    <Ionicons name="time-outline" size={15} color={C.text.secondary} />
+                  </View>
+                  <View style={styles.freqTexts}>
+                    <Text style={[styles.freqMain, { color: C.text.primary }]} numberOfLines={1}>
+                      {loc.address.split(',')[0]}
+                    </Text>
+                    {loc.address.split(',').slice(1).join(',').trim() ? (
+                      <Text style={[styles.freqSub, { color: C.text.secondary }]} numberOfLines={1}>
+                        {loc.address.split(',').slice(1, 3).join(',').trim()}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Text style={[styles.freqCount, { color: C.text.tertiary, fontVariant: ['tabular-nums'] }]}>
+                    {loc.count}×
+                  </Text>
+                </Pressable>
+              ))}
+              <View style={[styles.dividerRow, { backgroundColor: C.background.divider, marginTop: 4 }]} />
+            </>
+          )}
 
           {/* Suggestion results */}
           {loadingSuggestions ? (
@@ -683,5 +825,26 @@ function getStyles(C: ColorPalette) {
     suggestionSub: { fontSize: Typography.sizes.chip, marginTop: 2 },
     emptyHint: { alignItems: 'center', paddingVertical: 48 },
     emptyHintText: { fontSize: Typography.sizes.body },
+
+    // Frequent locations
+    freqEyebrow: {
+      fontSize: Typography.sizes.eyebrow, fontWeight: '600',
+      letterSpacing: 1.2,
+      paddingHorizontal: Spacing.screenH,
+      paddingTop: 16, paddingBottom: 8,
+    },
+    freqRow: {
+      flexDirection: 'row', alignItems: 'center',
+      paddingHorizontal: Spacing.screenH, paddingVertical: 12,
+      gap: 12, minHeight: Components.touchMin,
+    },
+    freqIcon: {
+      width: 36, height: 36, borderRadius: 18,
+      alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    },
+    freqTexts: { flex: 1 },
+    freqMain: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.medium },
+    freqSub: { fontSize: Typography.sizes.chip, marginTop: 2 },
+    freqCount: { fontSize: Typography.sizes.chip },
   });
 }

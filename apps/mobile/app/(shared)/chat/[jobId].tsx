@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { View, Pressable, FlatList, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Pressable, FlatList, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -44,9 +45,12 @@ export default function ChatScreen() {
   });
 
   const otherPartyName = useMemo(() => {
-    const other = messages.find((m) => m.senderId !== currentUser?.id);
-    return other?.senderName ?? '—';
-  }, [messages, currentUser?.id]);
+    if (job) {
+      if (currentUser?.role === 'DRIVER') return job.shipperName || '—';
+      return job.matchedDriverName || messages.find((m) => m.senderId !== currentUser?.id)?.senderName || '—';
+    }
+    return messages.find((m) => m.senderId !== currentUser?.id)?.senderName ?? '—';
+  }, [job, messages, currentUser]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -104,7 +108,7 @@ export default function ChatScreen() {
                       {item.content}
                     </Text>
                   )}
-                  <Text style={styles.messageTime}>{formatTime(item.createdAt)}</Text>
+                  <Text style={[styles.messageTime, !isMe && { color: C.text.tertiary }]}>{formatTime(item.createdAt)}</Text>
                 </View>
               </View>
             );

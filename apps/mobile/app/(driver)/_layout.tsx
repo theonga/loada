@@ -59,12 +59,12 @@ export default function DriverLayout() {
         }}
       />
       <Tabs.Screen
-        name="earnings/index"
+        name="notifications/index"
         options={{
-          tabBarLabel: "Earnings",
+          tabBarLabel: "Notifications",
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
-              name={focused ? "wallet" : "wallet-outline"}
+              name={focused ? "notifications" : "notifications-outline"}
               size={24}
               color={color}
             />
@@ -85,8 +85,10 @@ export default function DriverLayout() {
         }}
       />
       {/* Hidden routes */}
+      <Tabs.Screen name="earnings/index" options={{ href: null }} />
       <Tabs.Screen name="loads/[jobId]" options={{ href: null }} />
       <Tabs.Screen name="bid/[jobId]" options={{ href: null }} />
+      <Tabs.Screen name="bid/pending/[bidId]" options={{ href: null }} />
       <Tabs.Screen name="match/[jobId]" options={{ href: null }} />
       <Tabs.Screen name="active/en-route" options={{ href: null }} />
       <Tabs.Screen name="active/pickup" options={{ href: null }} />
@@ -109,9 +111,9 @@ function getStyles(C: ColorPalette) {
       paddingTop: 6,
     },
     tabLabel: {
-      fontFamily: "SourceSans3_700Bold",
-      fontSize: Typography.sizes.label,
-      letterSpacing: 0.1,
+      fontFamily: "DMSans_700Bold",
+      fontSize: 13,
+      letterSpacing: 0,
       marginTop: 2,
     },
   });

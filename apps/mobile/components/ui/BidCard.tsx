@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
+import { View, Pressable, StyleSheet, ActivityIndicator } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useColors, ColorPalette, Radius, Spacing, Typography, Components } from '@constants/theme';
@@ -21,11 +21,12 @@ interface BidCardProps {
   bid: Bid;
   isBestMatch?: boolean;
   onAccept: () => void;
-  onCounter: () => void;
-  onSkip: () => void;
+  onReject: () => void;
+  acceptLoading?: boolean;
+  rejectLoading?: boolean;
 }
 
-export function BidCard({ bid, isBestMatch, onAccept, onCounter, onSkip }: BidCardProps) {
+export function BidCard({ bid, isBestMatch, onAccept, onReject, acceptLoading, rejectLoading }: BidCardProps) {
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
   const d = bid.driver;
@@ -90,25 +91,26 @@ export function BidCard({ bid, isBestMatch, onAccept, onCounter, onSkip }: BidCa
 
       <View style={styles.actions}>
         <Pressable
-          style={[styles.btn, styles.acceptBtn]}
+          style={[styles.btn, styles.acceptBtn, (acceptLoading || rejectLoading) && { opacity: 0.7 }]}
           onPress={onAccept}
+          disabled={acceptLoading || rejectLoading}
           hitSlop={8}
         >
-          <Text style={styles.acceptText}>Accept</Text>
+          {acceptLoading
+            ? <ActivityIndicator size="small" color="#0A0A0A" />
+            : <Text style={styles.acceptText}>Accept</Text>
+          }
         </Pressable>
         <Pressable
-          style={[styles.btn, styles.counterBtn]}
-          onPress={onCounter}
+          style={[styles.btn, styles.rejectBtn, (acceptLoading || rejectLoading) && { opacity: 0.5 }]}
+          onPress={onReject}
+          disabled={acceptLoading || rejectLoading}
           hitSlop={8}
         >
-          <Text style={styles.counterText}>Counter</Text>
-        </Pressable>
-        <Pressable
-          style={styles.skipBtn}
-          onPress={onSkip}
-          hitSlop={8}
-        >
-          <Ionicons name="close" size={18} color={C.text.secondary} />
+          {rejectLoading
+            ? <ActivityIndicator size="small" color="#F44336" />
+            : <Text style={styles.rejectText}>Reject</Text>
+          }
         </Pressable>
       </View>
     </View>
@@ -229,29 +231,20 @@ function getStyles(C: ColorPalette) {
     acceptBtn: {
       backgroundColor: C.status.green,
     },
-    counterBtn: {
+    rejectBtn: {
+      backgroundColor: 'rgba(244,67,54,0.12)',
       borderWidth: 1,
-      borderColor: C.background.divider,
-      backgroundColor: 'transparent',
-    },
-    skipBtn: {
-      width: Components.touchMin,
-      height: Components.touchMin,
-      borderRadius: Radius.button,
-      borderWidth: 1,
-      borderColor: C.background.divider,
-      alignItems: 'center',
-      justifyContent: 'center',
+      borderColor: 'rgba(244,67,54,0.25)',
     },
     acceptText: {
       fontSize: Typography.sizes.body,
       fontWeight: Typography.weights.semibold,
       color: C.background.primary,
     },
-    counterText: {
+    rejectText: {
       fontSize: Typography.sizes.body,
       fontWeight: Typography.weights.semibold,
-      color: C.text.primary,
+      color: C.status.red,
     },
   });
 }

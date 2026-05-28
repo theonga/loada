@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { View, Pressable, TextInput, ScrollView, StyleSheet } from 'react-native';
+import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -26,7 +27,7 @@ export default function PostCargoScreen() {
     setReqs((prev) => prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Pressable onPress={() => router.back()} style={styles.closeBtn}>
           <Ionicons name="close" size={24} color={C.text.primary} />

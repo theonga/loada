@@ -4,9 +4,9 @@ import {
   View,
   Pressable,
   FlatList,
-  TextInput,
   StyleSheet,
 } from 'react-native';
+import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';

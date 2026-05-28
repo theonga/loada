@@ -8,7 +8,9 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { Avatar } from '@components/ui/Avatar';
 import { Stars } from '@components/ui/Stars';
 import { Skeleton } from '@components/ui/Skeleton';
+import { ScreenError } from '@components/ui/ScreenError';
 import { getJobById, getDriverProfile, getJobBids } from '@services';
+import { isAuthError } from '@services/api';
 import type { Job, DriverProfile, Bid } from '@/types';
 
 export default function ShipperMatchConfirmedScreen() {
@@ -19,15 +21,14 @@ export default function ShipperMatchConfirmedScreen() {
   const [driver, setDriver] = useState<DriverProfile | null>(null);
   const [acceptedBid, setAcceptedBid] = useState<Bid | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  useEffect(() => {
-    Animated.timing(flash, { toValue: 0, duration: 600, useNativeDriver: true }).start();
-  }, []);
-
-  useEffect(() => {
+  const load = () => {
     if (!jobId) return;
+    setLoading(true);
+    setError('');
     Promise.all([getJobById(jobId), getJobBids(jobId)])
       .then(([j, bids]) => {
         setJob(j);
@@ -37,13 +38,19 @@ export default function ShipperMatchConfirmedScreen() {
           return getDriverProfile(j.matchedDriverId).then(setDriver);
         }
       })
-      .catch(() => {})
+      .catch((err) => { if (!isAuthError(err)) setError((err as Error).message ?? 'Failed to load'); })
       .finally(() => setLoading(false));
-  }, [jobId]);
+  };
+
+  useEffect(() => {
+    Animated.timing(flash, { toValue: 0, duration: 600, useNativeDriver: true }).start();
+  }, []);
+
+  useEffect(() => { load(); }, [jobId]);
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={{ padding: Spacing.screenH, gap: Spacing.gap, alignItems: 'center', marginTop: 48 }}>
           <Skeleton width={64} height={64} borderRadius={32} />
           <Skeleton width={160} height={20} borderRadius={4} />
@@ -53,8 +60,16 @@ export default function ShipperMatchConfirmedScreen() {
     );
   }
 
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScreenError message={error} onRetry={load} onBack={() => router.back()} />
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <Animated.View
         style={[styles.flashOverlay, { opacity: flash }]}
         pointerEvents="none"

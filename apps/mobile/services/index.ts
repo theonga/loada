@@ -49,7 +49,7 @@ interface ApiJob {
   createdAt: string;
   updatedAt: string;
   shipper?: { user?: { name?: string } } | null;
-  bids?: unknown[];
+  bids?: Array<{ status: string; driver?: { user?: { name?: string } | null } | null }>;
 }
 
 interface ApiDriverUser {
@@ -90,6 +90,7 @@ interface ApiBid {
   driver?: ApiDriverProfile | null;
   distanceKm?: number | null;
   etaMinutes?: number | null;
+  job?: ApiJob | null;
 }
 
 interface ApiEarnings {
@@ -157,6 +158,7 @@ function toJob(j: ApiJob): Job {
     searchRadiusKm: j.searchRadiusKm,
     biddingExpiresAt: j.biddingExpiresAt ?? undefined,
     matchedDriverId: j.matchedDriverId ?? undefined,
+    matchedDriverName: j.bids?.find(b => b.status === 'ACCEPTED')?.driver?.user?.name ?? undefined,
     bidCount: Array.isArray(j.bids) ? j.bids.length : 0,
     distanceKm: Math.round(haversineKm(j.originLat, j.originLng, j.destLat, j.destLng)),
     estimatedHours: Math.round(haversineKm(j.originLat, j.originLng, j.destLat, j.destLng) / 70 * 10) / 10,
@@ -221,6 +223,7 @@ function toBid(b: ApiBid): Bid {
     distanceKm: b.distanceKm ?? null,
     etaMinutes: b.etaMinutes ?? null,
     createdAt: b.createdAt,
+    job: b.job ? toJob(b.job) : undefined,
   };
 }
 
@@ -278,8 +281,9 @@ function toMessage(m: ApiMessage): Message {
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-export async function sendOTP(phone: string): Promise<void> {
-  await api.post('/auth/send-otp', { phone });
+export async function sendOTP(phone: string): Promise<{ devOtp?: string }> {
+  const data = await api.post<{ message: string; devOtp?: string }>('/auth/send-otp', { phone });
+  return { devOtp: data.devOtp };
 }
 
 export async function verifyOTP(
@@ -356,6 +360,11 @@ export async function acceptBid(bidId: string): Promise<Job> {
   return toJob(data.job);
 }
 
+export async function rejectBid(bidId: string): Promise<Bid> {
+  const data = await api.patch<{ bid: ApiBid }>(`/bids/${bidId}/reject`);
+  return toBid(data.bid);
+}
+
 export async function counterBid(bidId: string, price: number): Promise<Bid> {
   const data = await api.patch<{ bid: ApiBid }>(`/bids/${bidId}/counter`, { newPrice: price });
   return toBid(data.bid);
@@ -363,6 +372,11 @@ export async function counterBid(bidId: string, price: number): Promise<Bid> {
 
 export async function getJobBids(jobId: string): Promise<Bid[]> {
   const data = await api.get<{ bids: ApiBid[] }>(`/bids?jobId=${jobId}`);
+  return (data.bids ?? []).map(toBid);
+}
+
+export async function getMyBids(): Promise<Bid[]> {
+  const data = await api.get<{ bids: ApiBid[] }>('/bids/mine');
   return (data.bids ?? []).map(toBid);
 }
 
@@ -439,6 +453,21 @@ export async function getDriverProfile(profileId: string): Promise<DriverProfile
 export async function getMyDriverProfile(): Promise<DriverProfile> {
   const data = await api.get<{ driver: ApiDriverProfile }>('/drivers/me');
   return toDriverProfile(data.driver);
+}
+
+export async function updateDriverProfile(fields: {
+  truckMake?: string;
+  truckModel?: string;
+  truckYear?: number;
+  truckRegistration?: string;
+  capacityTonnes?: 1 | 2 | 5 | 10 | 20 | 30;
+  licenceUrl?: string;
+  licenceExpiry?: string;
+  registrationUrl?: string;
+  registrationExpiry?: string;
+  truckPhotoUrl?: string;
+}): Promise<void> {
+  await api.patch('/drivers/me', fields);
 }
 
 export async function getMySubscription(): Promise<import('@/types').Subscription | null> {
@@ -528,4 +557,27 @@ export async function getPlaceDetails(
     `/places/details?${qs}`,
   );
   return data.place;
+}
+
+// ─── Frequent locations ───────────────────────────────────────────────────────
+
+export interface FrequentLocation {
+  address: string;
+  lat: number;
+  lng: number;
+  count: number;
+}
+
+export async function getFrequentLocations(): Promise<{
+  pickups: FrequentLocation[];
+  dropoffs: FrequentLocation[];
+}> {
+  try {
+    const data = await api.get<{ pickups: FrequentLocation[]; dropoffs: FrequentLocation[] }>(
+      '/shippers/me/frequent-locations',
+    );
+    return data;
+  } catch {
+    return { pickups: [], dropoffs: [] };
+  }
 }

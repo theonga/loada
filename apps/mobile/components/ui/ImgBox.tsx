@@ -43,7 +43,7 @@ function getStyles(C: ColorPalette) {
     label: {
       fontSize: Typography.sizes.micro,
       color: C.text.tertiary,
-      fontFamily: 'monospace',
+      fontFamily: 'DMMono_400Regular',
     },
   });
 }

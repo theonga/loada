@@ -70,7 +70,13 @@ export async function expireBiddingSession(jobId: string): Promise<void> {
   const job = await prisma.job.findUnique({ where: { id: jobId } });
   if (!job || !["POSTED", "BIDDING", "RADIUS_EXPANDED"].includes(job.status)) return;
 
-  await prisma.job.update({ where: { id: jobId }, data: { status: "POSTED" } });
+  await prisma.$transaction([
+    prisma.job.update({ where: { id: jobId }, data: { status: "EXPIRED" } }),
+    prisma.bid.updateMany({
+      where: { jobId, status: { in: ["PENDING", "COUNTERED"] } },
+      data: { status: "EXPIRED" },
+    }),
+  ]);
 
   const { jobsNs } = getSocketServer();
   jobsNs.to(`job:${jobId}`).emit("job:expired", { jobId });

@@ -38,7 +38,7 @@ export default function DeliveryPODScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={{ padding: Spacing.screenH, gap: Spacing.gap }}>
           <Skeleton width="100%" height={200} borderRadius={12} />
           <Skeleton width="100%" height={150} borderRadius={12} />
@@ -52,7 +52,7 @@ export default function DeliveryPODScreen() {
     : '—';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={C.text.primary} />

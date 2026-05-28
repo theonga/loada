@@ -20,7 +20,7 @@ export default function SettingsScreen() {
   const styles = useMemo(() => getStyles(C), [C]);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={C.text.primary} />
@@ -105,7 +105,7 @@ function getStyles(C: ColorPalette) {
     appbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.screenH, height: 56 },
     backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     title: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
-    content: { padding: Spacing.screenH, gap: Spacing.gapSm },
+    content: { padding: Spacing.screenH, gap: Spacing.gapSm, paddingBottom: Spacing.section },
     sectionTitle: { fontSize: Typography.sizes.eyebrow, fontWeight: Typography.weights.semibold, color: C.text.secondary, letterSpacing: 1.2, marginTop: Spacing.gap },
     card: { backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider, overflow: 'hidden' },
     settingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.card, minHeight: Components.touchMin },

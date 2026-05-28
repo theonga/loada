@@ -34,7 +34,7 @@ export default function SubscriptionScreen() {
     : '—';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={C.text.primary} />
@@ -112,7 +112,7 @@ function getStyles(C: ColorPalette) {
     appbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.screenH, height: 56 },
     backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     title: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
-    content: { padding: Spacing.screenH, gap: Spacing.gap },
+    content: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: Spacing.section },
     activeCard: { backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.status.green, padding: Spacing.card, gap: Spacing.gapSm },
     activeRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     planName: { fontSize: Typography.sizes.cardTitle, fontWeight: Typography.weights.semibold, color: C.text.primary },

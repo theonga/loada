@@ -1,157 +1,330 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
+import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
 import { Chip } from '@components/ui/Chip';
-import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
 import { Skeleton } from '@components/ui/Skeleton';
+import { ScreenError } from '@components/ui/ScreenError';
+import { DARK_MAP_STYLE } from '@components/ui/MapBg';
 import { getJobById } from '@services';
+import { isAuthError } from '@services/api';
 import { TONNAGE_LABELS } from '@constants/index';
 import type { Job } from '@/types';
+
+function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
+  const result: { latitude: number; longitude: number }[] = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b = 0, shift = 0, r = 0;
+    do { b = encoded.charCodeAt(index++) - 63; r |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += r & 1 ? ~(r >> 1) : r >> 1;
+    shift = 0; r = 0;
+    do { b = encoded.charCodeAt(index++) - 63; r |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += r & 1 ? ~(r >> 1) : r >> 1;
+    result.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return result;
+}
+
+async function fetchRoute(
+  originLat: number, originLng: number,
+  destLat: number, destLng: number,
+): Promise<{ latitude: number; longitude: number }[]> {
+  const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? '';
+  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&key=${key}`;
+  const res = await fetch(url);
+  const json = await res.json() as { routes?: Array<{ overview_polyline?: { points: string } }> };
+  const points = json.routes?.[0]?.overview_polyline?.points;
+  if (points) return decodePolyline(points);
+  return [
+    { latitude: originLat, longitude: originLng },
+    { latitude: destLat, longitude: destLng },
+  ];
+}
 
 export default function LoadDetailScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
   const [job, setJob] = useState<Job | null>(null);
+  const [routePoints, setRoutePoints] = useState<{ latitude: number; longitude: number }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const mapRef = useRef<MapView | null>(null);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  useEffect(() => {
+  const load = () => {
     if (!jobId) return;
+    setLoading(true);
+    setError('');
     getJobById(jobId)
-      .then((j) => { setJob(j); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [jobId]);
+      .then((j) => {
+        setJob(j);
+        setLoading(false);
+        fetchRoute(j.originLat, j.originLng, j.destLat, j.destLng)
+          .then((pts) => {
+            setRoutePoints(pts);
+            setTimeout(() => {
+              mapRef.current?.fitToCoordinates(
+                [{ latitude: j.originLat, longitude: j.originLng }, { latitude: j.destLat, longitude: j.destLng }],
+                { edgePadding: { top: 100, right: 60, bottom: 380, left: 60 }, animated: true },
+              );
+            }, 400);
+          })
+          .catch(() => {
+            setRoutePoints([
+              { latitude: j.originLat, longitude: j.originLng },
+              { latitude: j.destLat, longitude: j.destLng },
+            ]);
+          });
+      })
+      .catch((err) => { if (!isAuthError(err)) setError((err as Error).message ?? 'Failed to load'); setLoading(false); });
+  };
+
+  useEffect(() => { load(); }, [jobId]);
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={{ padding: Spacing.screenH, gap: Spacing.gap }}>
-          <Skeleton width="100%" height={160} borderRadius={12} />
-          <Skeleton width="100%" height={80} borderRadius={12} />
-          <Skeleton width="100%" height={80} borderRadius={12} />
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.loadingBackBtn}>
+          <Pressable onPress={() => router.back()} style={styles.backBtnCircle}>
+            <Ionicons name="arrow-back" size={20} color={C.text.primary} />
+          </Pressable>
+        </View>
+        <View style={styles.loadingSkeletons}>
+          <Skeleton width="40%" height={14} borderRadius={4} />
+          <Skeleton width="100%" height={22} borderRadius={4} />
+          <Skeleton width="100%" height={22} borderRadius={4} />
+          <View style={{ height: Spacing.gap }} />
+          <Skeleton width="100%" height={60} borderRadius={12} />
+          <Skeleton width="100%" height={52} borderRadius={12} />
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!job) {
+  if (error || !job) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ color: C.text.secondary }}>Load not found</Text>
-        </View>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScreenError message={error || 'Load not found'} onRetry={error ? load : undefined} onBack={() => router.back()} />
       </SafeAreaView>
     );
   }
+
+  const origin = { latitude: job.originLat, longitude: job.originLng };
+  const dest   = { latitude: job.destLat,   longitude: job.destLng };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.appbar}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={C.text.primary} />
+    <View style={styles.container}>
+      {/* Full-screen map */}
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
+        style={StyleSheet.absoluteFillObject}
+        customMapStyle={DARK_MAP_STYLE}
+        initialRegion={{
+          latitude: (job.originLat + job.destLat) / 2,
+          longitude: (job.originLng + job.destLng) / 2,
+          latitudeDelta: Math.abs(job.destLat - job.originLat) * 1.8 + 0.08,
+          longitudeDelta: Math.abs(job.destLng - job.originLng) * 1.8 + 0.08,
+        }}
+        showsUserLocation
+        showsMyLocationButton={false}
+        showsCompass={false}
+        showsTraffic={false}
+        showsBuildings={false}
+        showsIndoors={false}
+        rotateEnabled={false}
+        toolbarEnabled={false}
+      >
+        {routePoints.length > 1 && (
+          <Polyline
+            coordinates={routePoints}
+            strokeColor="#F5A623"
+            strokeWidth={4}
+          />
+        )}
+        <Marker coordinate={origin} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+          <MapPin kind="origin" scale={2} label="Pickup" />
+        </Marker>
+        <Marker coordinate={dest} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+          <MapPin kind="dest" scale={2} label="Drop-off" />
+        </Marker>
+      </MapView>
+
+      {/* Floating back button */}
+      <SafeAreaView edges={['top']} style={styles.topOverlay} pointerEvents="box-none">
+        <Pressable onPress={() => router.back()} style={styles.backBtnCircle}>
+          <Ionicons name="arrow-back" size={20} color={C.text.primary} />
         </Pressable>
-        <Text style={styles.title}>Load detail</Text>
-        <View style={{ width: 44 }} />
-      </View>
+      </SafeAreaView>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        {/* Mini map */}
-        <View style={styles.miniMap}>
-          <MapBg
-            initialRegion={{
-              latitude: (job.originLat + job.destLat) / 2,
-              longitude: (job.originLng + job.destLng) / 2,
-              latitudeDelta: Math.abs(job.destLat - job.originLat) + 0.05,
-              longitudeDelta: Math.abs(job.destLng - job.originLng) + 0.05,
-            }}
-          >
-            <View style={styles.originPin}><MapPin kind="origin" /></View>
-            <View style={styles.destPin}><MapPin kind="dest" /></View>
-          </MapBg>
-        </View>
-
-        {/* Route */}
-        <View style={styles.routeCard}>
-          <Text style={styles.routeFrom}>{job.originAddress}</Text>
-          <Ionicons name="arrow-down" size={16} color={C.text.tertiary} style={styles.routeArrow} />
-          <Text style={styles.routeTo}>{job.destAddress}</Text>
-          <View style={styles.routeStats}>
-            <Text style={styles.routeStat}>{job.distanceKm} km</Text>
-            <Text style={styles.routeStat}>·</Text>
-            <Text style={styles.routeStat}>{job.estimatedHours}h drive</Text>
-          </View>
-        </View>
-
-        {/* Cargo */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Cargo</Text>
-          <Text style={styles.cargoDesc}>{job.cargoDescription}</Text>
-          <View style={styles.chips}>
-            <Chip variant="amber">{TONNAGE_LABELS[job.requiredTonnes]}</Chip>
-            {job.specialRequirements.map((r) => (
-              <Chip key={r} variant={r === 'REFRIGERATED' ? 'blue' : 'default'}>{r}</Chip>
-            ))}
-          </View>
-        </View>
-
-        {/* Asking price */}
-        <View style={styles.priceCard}>
-          <View>
-            <Text style={styles.priceLabel}>Asking price</Text>
-            <Text style={styles.priceValue}>${job.askingPrice}</Text>
-          </View>
-          <View>
-            <Text style={styles.bidCountLabel}>{job.bidCount} bids</Text>
-            <Text style={styles.bidCountSub}>so far</Text>
-          </View>
-        </View>
-      </ScrollView>
-
-      <View style={styles.footer}>
-        <Pressable
-          style={styles.btn}
-          onPress={() => router.push(`/(driver)/bid/${job.id}`)}
+      {/* Fixed detail panel */}
+      <View style={styles.sheet}>
+        <View style={styles.sheetHandle} />
+        <ScrollView
+          contentContainerStyle={styles.sheetContent}
+          showsVerticalScrollIndicator={false}
+          bounces={false}
         >
-          <Text style={styles.btnText}>Place a bid</Text>
-        </Pressable>
+          {/* Route */}
+          <View style={styles.routeSection}>
+            <Text style={styles.eyebrow}>ROUTE</Text>
+            <View style={styles.routeRow}>
+              <View style={styles.routeDotOrigin} />
+              <Text style={styles.routeAddr} numberOfLines={2}>{job.originAddress}</Text>
+            </View>
+            <View style={styles.routeLine} />
+            <View style={styles.routeRow}>
+              <View style={styles.routeDotDest} />
+              <Text style={[styles.routeAddr, { color: C.accent }]} numberOfLines={2}>{job.destAddress}</Text>
+            </View>
+            {(job.distanceKm != null || job.estimatedHours != null) && (
+              <View style={styles.routeMeta}>
+                {job.distanceKm != null && (
+                  <Text style={styles.routeMetaText}>{job.distanceKm} km</Text>
+                )}
+                {job.distanceKm != null && job.estimatedHours != null && (
+                  <Text style={styles.routeMetaDot}>·</Text>
+                )}
+                {job.estimatedHours != null && (
+                  <Text style={styles.routeMetaText}>{job.estimatedHours}h drive</Text>
+                )}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.divider} />
+
+          {/* Cargo */}
+          <View style={styles.section}>
+            <Text style={styles.eyebrow}>CARGO</Text>
+            <Text style={styles.cargoDesc}>{job.cargoDescription}</Text>
+            <View style={styles.chips}>
+              <Chip variant="amber">{TONNAGE_LABELS[job.requiredTonnes]}</Chip>
+              {job.specialRequirements.map((r) => (
+                <Chip key={r} variant={r === 'REFRIGERATED' ? 'blue' : 'default'}>{r}</Chip>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          {/* Price + bids */}
+          <View style={styles.priceRow}>
+            <View>
+              <Text style={styles.eyebrow}>ASKING PRICE</Text>
+              <Text style={styles.price}>${job.askingPrice}</Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.bidCount}>{job.bidCount ?? 0}</Text>
+              <Text style={styles.bidLabel}>bids so far</Text>
+            </View>
+          </View>
+
+        </ScrollView>
+        <View style={styles.sheetFooter}>
+          <Pressable
+            style={styles.btn}
+            onPress={() => router.push(`/(driver)/bid/${job.id}`)}
+          >
+            <Text style={styles.btnText}>Place a bid</Text>
+          </Pressable>
+        </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 function getStyles(C: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background.primary },
-    appbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.screenH, height: 56 },
-    backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    title: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
-    scroll: { flex: 1 },
-    scrollContent: { gap: Spacing.gap, padding: Spacing.screenH },
-    miniMap: { height: 160, borderRadius: Radius.card, overflow: 'hidden', borderWidth: 1, borderColor: C.background.divider },
-    originPin: { position: 'absolute', top: '25%', left: '20%' },
-    destPin: { position: 'absolute', bottom: '25%', right: '20%' },
-    routeCard: { backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider, padding: Spacing.card, gap: 4 },
-    routeFrom: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
-    routeArrow: { paddingLeft: 4 },
-    routeTo: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.accent },
-    routeStats: { flexDirection: 'row', gap: 8, marginTop: 4 },
-    routeStat: { fontSize: Typography.sizes.chip, color: C.text.secondary, fontVariant: ['tabular-nums'] },
-    card: { backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider, padding: Spacing.card, gap: Spacing.gapSm },
-    cardTitle: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.semibold, color: C.text.secondary, textTransform: 'uppercase', letterSpacing: 1 },
+
+    // Loading state
+    loadingBackBtn: { padding: Spacing.screenH },
+    loadingSkeletons: {
+      position: 'absolute', bottom: 0, left: 0, right: 0,
+      backgroundColor: C.background.card,
+      borderTopLeftRadius: Components.bottomSheetR,
+      borderTopRightRadius: Components.bottomSheetR,
+      padding: Spacing.screenH,
+      gap: Spacing.gapSm,
+      paddingTop: Spacing.section,
+    },
+
+    // Back button
+    topOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },
+    backBtnCircle: {
+      margin: Spacing.screenH,
+      width: 40, height: 40, borderRadius: 20,
+      backgroundColor: C.background.card + 'EE',
+      alignItems: 'center', justifyContent: 'center',
+      borderWidth: 1, borderColor: C.background.divider,
+    },
+
+    // Fixed bottom sheet panel
+    sheet: {
+      position: 'absolute',
+      bottom: 0, left: 0, right: 0,
+      height: '46%',
+      backgroundColor: C.background.card,
+      borderTopLeftRadius: Components.bottomSheetR,
+      borderTopRightRadius: Components.bottomSheetR,
+      paddingTop: Spacing.gapSm,
+    },
+    sheetHandle: {
+      alignSelf: 'center',
+      width: Components.handleWidth,
+      height: Components.handleHeight,
+      borderRadius: 2,
+      backgroundColor: C.background.divider,
+      marginBottom: Spacing.gapSm,
+    },
+    sheetContent: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: Spacing.gap },
+
+    // Route section
+    routeSection: { gap: 6 },
+    eyebrow: {
+      fontSize: Typography.sizes.eyebrow,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.tertiary,
+      letterSpacing: 1.2,
+      marginBottom: 4,
+    },
+    routeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    routeDotOrigin: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#fff', marginTop: 4, flexShrink: 0 },
+    routeDotDest: { width: 10, height: 10, borderRadius: 5, backgroundColor: C.accent, marginTop: 4, flexShrink: 0 },
+    routeLine: { width: 1, height: 16, backgroundColor: C.background.divider, marginLeft: 4.5 },
+    routeAddr: { flex: 1, fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary, lineHeight: 22 },
+    routeMeta: { flexDirection: 'row', gap: 6, marginTop: 2 },
+    routeMetaText: { fontSize: Typography.sizes.chip, color: C.text.secondary, fontVariant: ['tabular-nums'] },
+    routeMetaDot: { fontSize: Typography.sizes.chip, color: C.text.tertiary },
+
+    divider: { height: 1, backgroundColor: C.background.divider },
+
+    // Cargo section
+    section: { gap: Spacing.gapSm },
     cargoDesc: { fontSize: Typography.sizes.body, color: C.text.primary },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-    priceCard: { backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider, padding: Spacing.card, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    priceLabel: { fontSize: Typography.sizes.label, color: C.text.secondary },
-    priceValue: { fontSize: Typography.sizes.price, fontWeight: Typography.weights.bold, color: C.accent, fontVariant: ['tabular-nums'] },
-    bidCountLabel: { fontSize: Typography.sizes.cardTitle, fontWeight: Typography.weights.bold, color: C.text.primary, fontVariant: ['tabular-nums'], textAlign: 'right' },
-    bidCountSub: { fontSize: Typography.sizes.chip, color: C.text.secondary, textAlign: 'right' },
-    footer: { padding: Spacing.screenH },
+
+    // Price section
+    priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
+    price: { fontSize: Typography.sizes.price, fontWeight: Typography.weights.bold, color: C.accent, fontVariant: ['tabular-nums'], marginTop: 2 },
+    bidCount: { fontSize: Typography.sizes.cardTitle, fontWeight: Typography.weights.bold, color: C.text.primary, fontVariant: ['tabular-nums'] },
+    bidLabel: { fontSize: Typography.sizes.chip, color: C.text.secondary },
+
+    // Sticky footer + CTA
+    sheetFooter: {
+      paddingHorizontal: Spacing.screenH,
+      paddingVertical: Spacing.gap,
+      borderTopWidth: 1,
+      borderTopColor: C.background.divider,
+    },
     btn: { height: Components.buttonHeight, backgroundColor: C.accent, borderRadius: Radius.button, alignItems: 'center', justifyContent: 'center' },
     btnText: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.background.primary },
   });

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { View, Pressable, TextInput, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { View, Pressable, StyleSheet, ActivityIndicator, Image } from 'react-native';
+import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -39,7 +40,7 @@ export default function JobCompleteScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Text style={styles.title}>Complete delivery</Text>
       </View>

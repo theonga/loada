@@ -25,7 +25,7 @@ export default function EarningsScreen() {
 
   if (!earnings) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={styles.skeletons}>
           <Skeleton width="100%" height={120} borderRadius={12} />
           <Skeleton width="100%" height={200} borderRadius={12} />
@@ -34,13 +34,14 @@ export default function EarningsScreen() {
     );
   }
 
-  const weekGrowth = earnings.totalEarned > earnings.previousWeekTotal;
-  const growthPct = Math.round(
-    ((earnings.totalEarned - earnings.previousWeekTotal) / earnings.previousWeekTotal) * 100,
-  );
+  const hasPrevWeek = earnings.previousWeekTotal > 0;
+  const weekGrowth = earnings.totalEarned >= earnings.previousWeekTotal;
+  const growthPct = hasPrevWeek
+    ? Math.round(((earnings.totalEarned - earnings.previousWeekTotal) / earnings.previousWeekTotal) * 100)
+    : null;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
         <Text style={styles.title}>Earnings</Text>
         <Text style={styles.week}>{earnings.weekLabel}</Text>
@@ -51,12 +52,18 @@ export default function EarningsScreen() {
         <View style={styles.totalCard}>
           <Text style={styles.totalLabel}>THIS WEEK</Text>
           <Text style={styles.totalValue}>${earnings.totalEarned}</Text>
-          <View style={[styles.growthBadge, { backgroundColor: weekGrowth ? C.status.green + '22' : C.status.red + '22' }]}>
-            <Ionicons name={weekGrowth ? 'trending-up' : 'trending-down'} size={14} color={weekGrowth ? C.status.green : C.status.red} />
-            <Text style={[styles.growthText, { color: weekGrowth ? C.status.green : C.status.red }]}>
-              {Math.abs(growthPct)}% vs last week
-            </Text>
-          </View>
+          {growthPct !== null ? (
+            <View style={[styles.growthBadge, { backgroundColor: weekGrowth ? C.status.green + '22' : C.status.red + '22' }]}>
+              <Ionicons name={weekGrowth ? 'trending-up' : 'trending-down'} size={14} color={weekGrowth ? C.status.green : C.status.red} />
+              <Text style={[styles.growthText, { color: weekGrowth ? C.status.green : C.status.red }]}>
+                {Math.abs(growthPct)}% vs last week
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.growthBadge, { backgroundColor: C.background.elevated }]}>
+              <Text style={[styles.growthText, { color: C.text.tertiary }]}>First week</Text>
+            </View>
+          )}
         </View>
 
         {/* Bar chart */}
@@ -84,10 +91,12 @@ export default function EarningsScreen() {
           ))}
         </View>
 
-        <View style={styles.subCard}>
-          <Text style={styles.subLabel}>Weekly subscription</Text>
-          <Text style={styles.subValue}>-${earnings.subscriptionCost}</Text>
-        </View>
+        {earnings.subscriptionCost > 0 && (
+          <View style={styles.subCard}>
+            <Text style={styles.subLabel}>Subscription fee (this week)</Text>
+            <Text style={styles.subValue}>-${earnings.subscriptionCost}</Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -100,7 +109,7 @@ function getStyles(C: ColorPalette) {
     appbar: { paddingHorizontal: Spacing.screenH, paddingTop: 16, paddingBottom: 4 },
     title: { fontSize: Typography.sizes.screenTitle, fontWeight: Typography.weights.bold, color: C.text.primary },
     week: { fontSize: Typography.sizes.chip, color: C.text.secondary, marginTop: 2 },
-    content: { padding: Spacing.screenH, gap: Spacing.gap },
+    content: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: Spacing.section },
     totalCard: { backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider, padding: Spacing.section, alignItems: 'center', gap: Spacing.gapSm },
     totalLabel: { fontSize: Typography.sizes.eyebrow, fontWeight: Typography.weights.semibold, color: C.text.secondary, letterSpacing: 1.2 },
     totalValue: { fontSize: Typography.sizes.largePrice, fontWeight: Typography.weights.bold, color: C.text.primary, fontVariant: ['tabular-nums'] },

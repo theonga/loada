@@ -20,6 +20,7 @@ import { smsRoutes } from "@/routes/sms";
 import { adminRoutes } from "@/routes/admin";
 import { uploadRoutes } from "@/routes/uploads";
 import { placesRoutes } from "@/routes/places";
+import { shipperRoutes } from "@/routes/shippers";
 
 export async function buildApp() {
   const app = Fastify({
@@ -68,6 +69,7 @@ export async function buildApp() {
   await app.register(adminRoutes, { prefix: "/v1/admin" });
   await app.register(uploadRoutes, { prefix: "/v1/uploads" });
   await app.register(placesRoutes, { prefix: "/v1/places" });
+  await app.register(shipperRoutes, { prefix: "/v1/shippers" });
 
   app.get("/health", async () => ({
     status: "ok",

@@ -1,13 +1,14 @@
-import React, { useEffect, useState, useMemo } from 'react';
-import { View, Pressable, FlatList, StyleSheet } from 'react-native';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { View, Pressable, FlatList, StyleSheet, SectionList } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
-import { getNotifications } from '@services';
+import { getNotifications, getShipperJobs, getDriverActiveJobs } from '@services';
 import { useAuthStore } from '@store/auth.store';
-import type { AppNotification } from '@/types';
+import { JobStatus } from '@constants/index';
+import type { AppNotification, Job } from '@/types';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -19,6 +20,16 @@ const NOTIF_ICONS: Record<AppNotification['type'], IoniconName> = {
   SUBSCRIPTION: 'card-outline',
   SYSTEM: 'megaphone-outline',
 };
+
+const CHAT_STATUSES: JobStatus[] = [
+  JobStatus.MATCHED,
+  JobStatus.PICKUP_EN_ROUTE,
+  JobStatus.PICKUP_ARRIVED,
+  JobStatus.LOADED,
+  JobStatus.IN_TRANSIT,
+  JobStatus.DELIVERED,
+  JobStatus.COMPLETED,
+];
 
 function timeAgo(iso: string): string {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -32,6 +43,7 @@ export default function NotificationsScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
   const [notifs, setNotifs] = useState<AppNotification[]>([]);
+  const [chatJobs, setChatJobs] = useState<Job[]>([]);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -44,42 +56,94 @@ export default function NotificationsScreen() {
     SYSTEM: C.text.secondary,
   }), [C]);
 
-  useEffect(() => {
-    getNotifications(user?.id ?? '').then(setNotifs).catch(() => {});
-  }, [user?.id]);
+  const loadData = useCallback(async () => {
+    if (!user) return;
+    const [n, jobs] = await Promise.all([
+      getNotifications(user.id).catch(() => [] as AppNotification[]),
+      user.role === 'DRIVER'
+        ? getDriverActiveJobs(user.id).catch(() => [] as Job[])
+        : getShipperJobs(user.id).catch(() => [] as Job[]),
+    ]);
+    setNotifs(n);
+    setChatJobs(jobs.filter((j) => CHAT_STATUSES.includes(j.status as JobStatus)));
+  }, [user]);
+
+  useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
+
+  const sections = useMemo(() => {
+    const result = [];
+    if (chatJobs.length > 0) {
+      result.push({ title: 'MESSAGES', data: chatJobs.map((j) => ({ kind: 'chat' as const, job: j })) });
+    }
+    if (notifs.length > 0) {
+      result.push({ title: 'ACTIVITY', data: notifs.map((n) => ({ kind: 'notif' as const, notif: n })) });
+    }
+    return result;
+  }, [chatJobs, notifs]);
+
+  const isDriver = user?.role === 'DRIVER';
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.appbar}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={C.text.primary} />
-        </Pressable>
         <Text style={styles.title}>Notifications</Text>
-        <View style={{ width: 44 }} />
       </View>
 
-      <FlatList
-        data={notifs}
-        keyExtractor={(item) => item.id}
-        contentContainerStyle={styles.list}
-        renderItem={({ item }) => (
-          <Pressable style={[styles.notifItem, !item.isRead && styles.notifItemUnread]}>
-            <View style={styles.iconWrap}>
-              <Ionicons name={NOTIF_ICONS[item.type]} size={20} color={notifIconColors[item.type]} />
-            </View>
-            <View style={styles.notifContent}>
-              <Text style={styles.notifTitle}>{item.title}</Text>
-              <Text style={styles.notifBody} numberOfLines={2}>{item.body}</Text>
-              <Text style={styles.notifTime}>{timeAgo(item.createdAt)}</Text>
-            </View>
-            {!item.isRead && <View style={styles.unreadDot} />}
-          </Pressable>
-        )}
-        ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: C.background.divider }} />}
-        ListEmptyComponent={
-          <Text style={styles.empty}>No notifications yet</Text>
-        }
-      />
+      {sections.length === 0 ? (
+        <View style={styles.emptyWrap}>
+          <Ionicons name="notifications-outline" size={48} color={C.text.tertiary} />
+          <Text style={styles.emptyText}>Nothing here yet</Text>
+        </View>
+      ) : (
+        <SectionList
+          sections={sections}
+          keyExtractor={(item, i) => ('job' in item ? item.job.id : item.notif.id) + i}
+          contentContainerStyle={styles.list}
+          stickySectionHeadersEnabled={false}
+          renderSectionHeader={({ section }) => (
+            <Text style={styles.sectionLabel}>{section.title}</Text>
+          )}
+          renderItem={({ item }) => {
+            if (item.kind === 'chat') {
+              const job = item.job;
+              const otherName = isDriver ? job.shipperName : (job.matchedDriverName ?? 'Driver');
+              const route = `${job.originAddress.split(',')[0]} → ${job.destAddress.split(',')[0]}`;
+              return (
+                <Pressable
+                  style={({ pressed }) => [styles.chatRow, pressed && { backgroundColor: C.background.elevated }]}
+                  onPress={() => router.push(`/(shared)/chat/${job.id}`)}
+                >
+                  <View style={styles.chatIcon}>
+                    <Ionicons name="chatbubble-outline" size={20} color={C.accent} />
+                  </View>
+                  <View style={styles.chatContent}>
+                    <Text style={styles.chatName} numberOfLines={1}>{otherName}</Text>
+                    <Text style={styles.chatRoute} numberOfLines={1}>{route}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={C.text.tertiary} />
+                </Pressable>
+              );
+            }
+
+            const notif = item.notif;
+            return (
+              <Pressable style={[styles.notifItem, !notif.isRead && styles.notifItemUnread]}>
+                <View style={styles.iconWrap}>
+                  <Ionicons name={NOTIF_ICONS[notif.type]} size={20} color={notifIconColors[notif.type]} />
+                </View>
+                <View style={styles.notifContent}>
+                  <Text style={styles.notifTitle}>{notif.title}</Text>
+                  <Text style={styles.notifBody} numberOfLines={2}>{notif.body}</Text>
+                  <Text style={styles.notifTime}>{timeAgo(notif.createdAt)}</Text>
+                </View>
+                {!notif.isRead && <View style={styles.unreadDot} />}
+              </Pressable>
+            );
+          }}
+          ItemSeparatorComponent={() => <View style={{ height: 1, backgroundColor: C.background.divider }} />}
+          SectionSeparatorComponent={() => <View style={{ height: 8 }} />}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -87,18 +151,86 @@ export default function NotificationsScreen() {
 function getStyles(C: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background.primary },
-    appbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.screenH, height: 56, borderBottomWidth: 1, borderBottomColor: C.background.divider },
-    backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    title: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
-    list: {},
-    notifItem: { flexDirection: 'row', alignItems: 'flex-start', padding: Spacing.screenH, gap: Spacing.gap, minHeight: Components.touchMin },
+    appbar: {
+      paddingHorizontal: Spacing.screenH,
+      paddingTop: 16,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: C.background.divider,
+    },
+    title: {
+      fontSize: Typography.sizes.screenTitle,
+      fontWeight: Typography.weights.bold,
+      color: C.text.primary,
+    },
+    list: { paddingBottom: 40 },
+    sectionLabel: {
+      fontSize: Typography.sizes.eyebrow,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.tertiary,
+      letterSpacing: 1.2,
+      paddingHorizontal: Spacing.screenH,
+      paddingTop: 20,
+      paddingBottom: 6,
+    },
+
+    // Chat rows
+    chatRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: Spacing.screenH,
+      paddingVertical: 14,
+      gap: Spacing.gap,
+      minHeight: Components.touchMin,
+    },
+    chatIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(245,166,35,0.10)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    chatContent: { flex: 1, gap: 3 },
+    chatName: {
+      fontSize: Typography.sizes.body,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.primary,
+    },
+    chatRoute: {
+      fontSize: Typography.sizes.chip,
+      color: C.text.secondary,
+    },
+
+    // Notification rows
+    notifItem: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      paddingHorizontal: Spacing.screenH,
+      paddingVertical: 14,
+      gap: Spacing.gap,
+      minHeight: Components.touchMin,
+    },
     notifItemUnread: { backgroundColor: 'rgba(245,166,35,0.04)' },
-    iconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: C.background.elevated, alignItems: 'center', justifyContent: 'center' },
+    iconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: C.background.elevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     notifContent: { flex: 1, gap: 4 },
-    notifTitle: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.semibold, color: C.text.primary },
+    notifTitle: {
+      fontSize: Typography.sizes.label,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.primary,
+    },
     notifBody: { fontSize: Typography.sizes.chip, color: C.text.secondary, lineHeight: 18 },
     notifTime: { fontSize: Typography.sizes.micro, color: C.text.tertiary, fontVariant: ['tabular-nums'] },
     unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.accent, marginTop: 4 },
-    empty: { textAlign: 'center', color: C.text.tertiary, fontSize: Typography.sizes.body, paddingVertical: 48 },
+
+    emptyWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
+    emptyText: { fontSize: Typography.sizes.body, color: C.text.tertiary },
   });
 }

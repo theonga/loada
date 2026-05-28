@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import { requireAuth, requireDriver, requireShipper, requireActiveSubscription } from "@/middleware/auth";
 import { placeBidSchema, counterBidSchema, bidsQuerySchema } from "@/schemas/bid.schema";
-import { placeBid, acceptBid, counterBid, getJobBids } from "@/services/bid.service";
+import { placeBid, acceptBid, rejectBid, counterBid, getJobBids, getMyBids } from "@/services/bid.service";
 
 type AuthUser = { id: string; driverProfile?: { id: string } | null };
 
@@ -29,6 +29,20 @@ export async function bidRoutes(app: FastifyInstance) {
     }
   });
 
+  app.get("/mine", { preHandler: [requireDriver] }, async (req, reply) => {
+    try {
+      const user = getUser(req);
+      if (!user.driverProfile) {
+        return reply.status(400).send({ success: false, error: { code: "NO_DRIVER_PROFILE", message: "No driver profile" } });
+      }
+      const bids = await getMyBids(user.driverProfile.id);
+      return reply.send({ success: true, data: { bids } });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
+    }
+  });
+
   app.get("/", { preHandler: [requireAuth] }, async (req, reply) => {
     try {
       const { jobId } = bidsQuerySchema.parse(req.query);
@@ -49,6 +63,18 @@ export async function bidRoutes(app: FastifyInstance) {
       const user = getUser(req);
       const job = await acceptBid(bidId, user.id);
       return reply.send({ success: true, data: { job } });
+    } catch (err) {
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
+    }
+  });
+
+  app.patch("/:bidId/reject", { preHandler: [requireShipper] }, async (req, reply) => {
+    try {
+      const { bidId } = req.params as { bidId: string };
+      const user = getUser(req);
+      const bid = await rejectBid(bidId, user.id);
+      return reply.send({ success: true, data: { bid } });
     } catch (err) {
       const e = err as { statusCode?: number; code?: string; message: string };
       return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });

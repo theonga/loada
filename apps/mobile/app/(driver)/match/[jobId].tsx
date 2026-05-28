@@ -6,7 +6,9 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { Skeleton } from '@components/ui/Skeleton';
+import { ScreenError } from '@components/ui/ScreenError';
 import { getJobById } from '@services';
+import { isAuthError } from '@services/api';
 import type { Job } from '@/types';
 
 export default function DriverMatchConfirmedScreen() {
@@ -15,23 +17,28 @@ export default function DriverMatchConfirmedScreen() {
   const flash = useRef(new Animated.Value(0.8)).current;
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  const load = () => {
+    if (!jobId) return;
+    setLoading(true);
+    setError('');
+    getJobById(jobId)
+      .then((j) => { setJob(j); setLoading(false); })
+      .catch((err) => { if (!isAuthError(err)) setError((err as Error).message ?? 'Failed to load job'); setLoading(false); });
+  };
 
   useEffect(() => {
     Animated.timing(flash, { toValue: 0, duration: 600, useNativeDriver: true }).start();
   }, []);
 
-  useEffect(() => {
-    if (!jobId) return;
-    getJobById(jobId)
-      .then((j) => { setJob(j); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, [jobId]);
+  useEffect(() => { load(); }, [jobId]);
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <View style={{ padding: Spacing.screenH, gap: Spacing.gap }}>
           <Skeleton width="100%" height={240} borderRadius={12} />
         </View>
@@ -39,8 +46,16 @@ export default function DriverMatchConfirmedScreen() {
     );
   }
 
+  if (error) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <ScreenError message={error} onRetry={load} onBack={() => router.back()} />
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <Animated.View
         style={[styles.flashOverlay, { opacity: flash }]}
         pointerEvents="none"

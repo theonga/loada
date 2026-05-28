@@ -5,6 +5,12 @@ export const updateDriverSchema = z.object({
   truckModel: z.string().optional(),
   truckYear: z.number().int().min(1990).max(2030).optional(),
   truckRegistration: z.string().optional(),
+  capacityTonnes: z.union([z.literal(1), z.literal(2), z.literal(5), z.literal(10), z.literal(20), z.literal(30)]).optional(),
+  licenceUrl: z.string().url().optional(),
+  licenceExpiry: z.string().datetime({ offset: true }).optional(),
+  registrationUrl: z.string().url().optional(),
+  registrationExpiry: z.string().datetime({ offset: true }).optional(),
+  truckPhotoUrl: z.string().url().optional(),
 });
 
 export const driverOnlineSchema = z.object({

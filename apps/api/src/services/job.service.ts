@@ -15,8 +15,8 @@ const ACTIVE_JOB_STATUSES: JobStatus[] = [
 
 const VALID_TRANSITIONS: Partial<Record<JobStatus, JobStatus[]>> = {
   POSTED: ["BIDDING", "CANCELLED"],
-  BIDDING: ["RADIUS_EXPANDED", "MATCHED", "CANCELLED", "POSTED"],
-  RADIUS_EXPANDED: ["MATCHED", "CANCELLED", "POSTED"],
+  BIDDING: ["RADIUS_EXPANDED", "MATCHED", "CANCELLED", "EXPIRED"],
+  RADIUS_EXPANDED: ["MATCHED", "CANCELLED", "EXPIRED"],
   MATCHED: ["PICKUP_EN_ROUTE", "CANCELLED"],
   PICKUP_EN_ROUTE: ["PICKUP_ARRIVED"],
   PICKUP_ARRIVED: ["LOADED"],
@@ -26,6 +26,7 @@ const VALID_TRANSITIONS: Partial<Record<JobStatus, JobStatus[]>> = {
   COMPLETED: [],
   CANCELLED: [],
   DISPUTED: ["COMPLETED", "CANCELLED"],
+  EXPIRED: [],
 };
 
 export interface CreateJobInput {
@@ -122,6 +123,7 @@ export async function getAvailableLoads(driverId: string, lat: number, lng: numb
     FROM "Job" j
     WHERE j.status IN ('POSTED', 'BIDDING', 'RADIUS_EXPANDED')
       AND j."requiredTonnes" <= ${driver.capacityTonnes}
+      AND (j."biddingExpiresAt" IS NULL OR j."biddingExpiresAt" AT TIME ZONE 'UTC' > NOW())
     ORDER BY distance_km ASC
     LIMIT 50
   `;

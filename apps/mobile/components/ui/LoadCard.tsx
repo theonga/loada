@@ -5,7 +5,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColors, ColorPalette, Radius, Spacing, Typography, Components } from '@constants/theme';
 import type { Job } from '@/types';
 import { Chip } from './Chip';
-import { TONNAGE_LABELS } from '@constants/index';
+import { TONNAGE_LABELS, JobStatus } from '@constants/index';
+
+const BIDDING_STATUSES: string[] = [JobStatus.POSTED, JobStatus.BIDDING, JobStatus.RADIUS_EXPANDED];
+
+function isJobExpired(job: Job): boolean {
+  if (job.status === JobStatus.EXPIRED) return true;
+  // Fallback: time-based check for jobs whose worker hasn't run yet
+  return (
+    BIDDING_STATUSES.includes(job.status) &&
+    job.biddingExpiresAt != null &&
+    new Date(job.biddingExpiresAt) < new Date()
+  );
+}
 
 function timeAgo(isoString: string): string {
   const diffMs = Date.now() - new Date(isoString).getTime();
@@ -26,19 +38,24 @@ function bidCountLabel(count: number): string {
 interface LoadCardProps {
   job: Job;
   onPress: () => void;
+  myBidPrice?: number;
 }
 
-export function LoadCard({ job, onPress }: LoadCardProps) {
+export function LoadCard({ job, onPress, myBidPrice }: LoadCardProps) {
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
-  const isCompetitive = job.bidCount >= 2;
+  const expired = isJobExpired(job);
+  const isCompetitive = !expired && job.bidCount >= 2;
 
   return (
-    <Pressable style={styles.card} onPress={onPress}>
+    <Pressable
+      style={[styles.card, expired && { borderColor: 'rgba(244,67,54,0.30)', opacity: 0.75 }]}
+      onPress={onPress}
+    >
       <View style={styles.topRow}>
         <View style={styles.routeCol}>
           <View style={styles.routeStop}>
-            <Ionicons name="radio-button-on" size={10} color={C.status.green} />
+            <Ionicons name="radio-button-on" size={10} color={expired ? C.text.tertiary : C.status.green} />
             <Text style={styles.routeText} numberOfLines={1}>
               {job.originAddress.split(',')[0]}
             </Text>
@@ -47,7 +64,7 @@ export function LoadCard({ job, onPress }: LoadCardProps) {
             <View style={[styles.routeLine, { backgroundColor: C.background.divider }]} />
           </View>
           <View style={styles.routeStop}>
-            <Ionicons name="location" size={10} color={C.accent} />
+            <Ionicons name="location" size={10} color={expired ? C.text.tertiary : C.accent} />
             <Text style={styles.routeText} numberOfLines={1}>
               {job.destAddress.split(',')[0]}
             </Text>
@@ -56,11 +73,12 @@ export function LoadCard({ job, onPress }: LoadCardProps) {
             {job.distanceKm} km · {job.cargoDescription}
           </Text>
         </View>
-        <Text style={styles.price}>${job.askingPrice}</Text>
+        <Text style={[styles.price, expired && { color: C.text.secondary }]}>${job.askingPrice}</Text>
       </View>
 
       <View style={styles.chips}>
-        <Chip variant="amber">{TONNAGE_LABELS[job.requiredTonnes]}</Chip>
+        {expired && <Chip variant="red">Expired</Chip>}
+        <Chip variant={expired ? 'default' : 'amber'}>{TONNAGE_LABELS[job.requiredTonnes]}</Chip>
         {job.specialRequirements.map((req) => (
           <Chip key={req} variant={req === 'REFRIGERATED' ? 'blue' : 'default'}>
             {req}
@@ -69,10 +87,19 @@ export function LoadCard({ job, onPress }: LoadCardProps) {
       </View>
 
       <View style={styles.footer}>
-        <Text style={[styles.bidCount, { color: isCompetitive ? C.accent : C.text.tertiary }]}>
-          {bidCountLabel(job.bidCount)}
-          {isCompetitive && ' · competitive'}
-        </Text>
+        {myBidPrice != null ? (
+          <View style={styles.myBidRow}>
+            <View style={styles.myBidDot} />
+            <Text style={styles.myBidText}>Your bid: ${myBidPrice}</Text>
+          </View>
+        ) : expired ? (
+          <Text style={[styles.bidCount, { color: C.status.red }]}>Bidding closed</Text>
+        ) : (
+          <Text style={[styles.bidCount, { color: isCompetitive ? C.accent : C.text.tertiary }]}>
+            {bidCountLabel(job.bidCount)}
+            {isCompetitive && ' · competitive'}
+          </Text>
+        )}
         <Text style={styles.timeAgo}>{timeAgo(job.createdAt)}</Text>
       </View>
     </Pressable>
@@ -149,6 +176,23 @@ function getStyles(C: ColorPalette) {
     timeAgo: {
       fontSize: Typography.sizes.chip,
       color: C.text.tertiary,
+      fontVariant: ['tabular-nums'],
+    },
+    myBidRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+    },
+    myBidDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: C.accent,
+    },
+    myBidText: {
+      fontSize: Typography.sizes.chip,
+      fontWeight: Typography.weights.semibold,
+      color: C.accent,
       fontVariant: ['tabular-nums'],
     },
   });

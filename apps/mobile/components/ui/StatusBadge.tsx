@@ -23,6 +23,7 @@ function getStatusMap(C: ColorPalette): Record<JobStatus, { color: string; label
     [JobStatus.COMPLETED]: { color: C.status.green, label: 'Delivered' },
     [JobStatus.CANCELLED]: { color: C.status.red, label: 'Cancelled' },
     [JobStatus.DISPUTED]: { color: C.status.red, label: 'Disputed' },
+    [JobStatus.EXPIRED]: { color: C.status.red, label: 'Expired' },
   };
 }
 
