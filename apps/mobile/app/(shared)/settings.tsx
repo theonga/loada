@@ -66,6 +66,23 @@ export default function SettingsScreen() {
           ))}
         </View>
 
+        <Text style={styles.sectionTitle}>LEGAL</Text>
+        <View style={styles.card}>
+          <Pressable style={styles.settingRowBtn} onPress={() => router.push('/(shared)/legal/terms')}>
+            <View style={styles.rowInner}>
+              <Text style={styles.settingLabel}>Terms of Use</Text>
+              <Ionicons name="chevron-forward" size={18} color={C.text.tertiary} />
+            </View>
+          </Pressable>
+          <View style={styles.divider} />
+          <Pressable style={styles.settingRowBtn} onPress={() => router.push('/(shared)/legal/privacy')}>
+            <View style={styles.rowInner}>
+              <Text style={styles.settingLabel}>Privacy Policy</Text>
+              <Ionicons name="chevron-forward" size={18} color={C.text.tertiary} />
+            </View>
+          </Pressable>
+        </View>
+
         <Text style={styles.sectionTitle}>ACCOUNT</Text>
         <View style={styles.card}>
           <Pressable
@@ -113,6 +130,7 @@ function getStyles(C: ColorPalette) {
     settingLabel: { fontSize: Typography.sizes.body, color: C.text.primary },
     divider: { height: 1, backgroundColor: C.background.divider },
     langRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: Spacing.card, minHeight: Components.touchMin },
+    rowInner: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, flex: 1 },
     logoutText: { fontSize: Typography.sizes.body, color: C.status.red },
     deleteText: { fontSize: Typography.sizes.body, color: C.status.red },
   });

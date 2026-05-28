@@ -1,9 +1,19 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import MapView, { PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
+import MapView, { PROVIDER_GOOGLE, Polyline, Marker } from 'react-native-maps';
+
+export interface MapMarkerData {
+  id: string;
+  latitude: number;
+  longitude: number;
+  /** Rendered as the Marker's custom view */
+  pin: React.ReactNode;
+}
 
 interface MapBgProps {
   children?: React.ReactNode;
+  /** Elements rendered INSIDE MapView — use for geo-positioned Markers */
+  mapChildren?: React.ReactNode;
   initialRegion?: {
     latitude: number;
     longitude: number;
@@ -41,7 +51,7 @@ const DEFAULT_REGION = {
   longitudeDelta: 0.0421,
 };
 
-export function MapBg({ children, initialRegion, routePoints, mapRef }: MapBgProps) {
+export function MapBg({ children, mapChildren, initialRegion, routePoints, mapRef }: MapBgProps) {
   return (
     <View style={styles.container}>
       <MapView
@@ -69,6 +79,7 @@ export function MapBg({ children, initialRegion, routePoints, mapRef }: MapBgPro
             lineDashPattern={[0]}
           />
         )}
+        {mapChildren}
       </MapView>
       {children}
     </View>

@@ -11,6 +11,9 @@ import { JobStatus } from '@constants/index';
 import type { AppNotification, Job } from '@/types';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+type ChatItem = { kind: 'chat'; job: Job };
+type NotifItem = { kind: 'notif'; notif: AppNotification };
+type ListItem = ChatItem | NotifItem;
 
 const NOTIF_ICONS: Record<AppNotification['type'], IoniconName> = {
   BID_RECEIVED: 'cash-outline',
@@ -70,13 +73,13 @@ export default function NotificationsScreen() {
 
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
-  const sections = useMemo(() => {
-    const result = [];
+  const sections = useMemo((): { title: string; data: ListItem[] }[] => {
+    const result: { title: string; data: ListItem[] }[] = [];
     if (chatJobs.length > 0) {
-      result.push({ title: 'MESSAGES', data: chatJobs.map((j) => ({ kind: 'chat' as const, job: j })) });
+      result.push({ title: 'MESSAGES', data: chatJobs.map((j): ChatItem => ({ kind: 'chat', job: j })) });
     }
     if (notifs.length > 0) {
-      result.push({ title: 'ACTIVITY', data: notifs.map((n) => ({ kind: 'notif' as const, notif: n })) });
+      result.push({ title: 'ACTIVITY', data: notifs.map((n): NotifItem => ({ kind: 'notif', notif: n })) });
     }
     return result;
   }, [chatJobs, notifs]);
@@ -95,9 +98,9 @@ export default function NotificationsScreen() {
           <Text style={styles.emptyText}>Nothing here yet</Text>
         </View>
       ) : (
-        <SectionList
+        <SectionList<ListItem>
           sections={sections}
-          keyExtractor={(item, i) => ('job' in item ? item.job.id : item.notif.id) + i}
+          keyExtractor={(item, i) => (item.kind === 'chat' ? item.job.id : item.notif.id) + i}
           contentContainerStyle={styles.list}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => (

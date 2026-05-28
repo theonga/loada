@@ -1,12 +1,15 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { View, Pressable, StyleSheet, Switch } from 'react-native';
 import type MapView from 'react-native-maps';
+import { Marker } from 'react-native-maps';
 import { Text } from '@components/ui/Text';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
+import { PulsingRadius } from '@components/ui/PulsingRadius';
 import { useAuthStore } from '@store/auth.store';
 import { useLocationStore } from '@store/location.store';
 import { useJobStore } from '@store/job.store';
@@ -14,6 +17,7 @@ import { JobStatus } from '@constants/index';
 import { useDriverHeartbeat } from '@hooks/useDriverHeartbeat';
 import { useCurrentLocation } from '@hooks/useCurrentLocation';
 import { getAvailableLoads } from '@services';
+import type { Job } from '@/types';
 
 export default function DriverHomeScreen() {
   const router = useRouter();
@@ -21,7 +25,7 @@ export default function DriverHomeScreen() {
   const { isOnline, setOnline, driverLocation } = useLocationStore();
   const activeJob = useJobStore((s) => s.activeJob);
   const firstName = user?.name.split(' ')[0] ?? 'Driver';
-  const [loadsCount, setLoadsCount] = useState<number | null>(null);
+  const [nearbyLoads, setNearbyLoads] = useState<Job[]>([]);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -30,12 +34,13 @@ export default function DriverHomeScreen() {
   const mapRef = useRef<MapView>(null);
   const { location: currentLocation } = useCurrentLocation();
 
+  // Fetch available loads whenever online state or location changes
   useEffect(() => {
-    if (!isOnline) { setLoadsCount(null); return; }
+    if (!isOnline) { setNearbyLoads([]); return; }
     getAvailableLoads(user?.id ?? '')
-      .then((jobs) => setLoadsCount(jobs.length))
-      .catch(() => setLoadsCount(null));
-  }, [isOnline]);
+      .then(setNearbyLoads)
+      .catch(() => setNearbyLoads([]));
+  }, [isOnline, user?.id]);
 
   // Animate to GPS position on first load if the heartbeat hasn't populated driverLocation yet
   useEffect(() => {
@@ -61,16 +66,31 @@ export default function DriverHomeScreen() {
       activeJob.status === JobStatus.IN_TRANSIT ||
       activeJob.status === JobStatus.MATCHED);
 
+  // Markers inside MapView — load origin pins (only when online)
+  const loadMarkers = isOnline
+    ? nearbyLoads.map((job) => (
+        <Marker
+          key={job.id}
+          coordinate={{ latitude: job.originLat, longitude: job.originLng }}
+          tracksViewChanges={false}
+          anchor={{ x: 0.5, y: 0.5 }}
+          onPress={() => router.push(`/(driver)/loads/${job.id}`)}
+        >
+          <MapPin kind="load" label={`${job.requiredTonnes}t`} />
+        </Marker>
+      ))
+    : [];
+
   return (
     <View style={styles.container}>
       <View style={styles.mapContainer}>
-        <MapBg mapRef={mapRef}>
-          {isOnline && (
-            <>
-              <View style={styles.pinLoad1}><MapPin kind="load" label="10t" /></View>
-              <View style={styles.pinLoad2}><MapPin kind="load" label="5t" /></View>
-            </>
-          )}
+        <MapBg mapRef={mapRef} mapChildren={loadMarkers}>
+          {/* Pulsing green radius when online, hidden when offline */}
+          <PulsingRadius color={C.status.green} visible={isOnline} />
+          {/* Static "me" pin centered on screen */}
+          <View style={styles.mePin} pointerEvents="none">
+            <MapPin kind="me" />
+          </View>
         </MapBg>
       </View>
 
@@ -95,6 +115,15 @@ export default function DriverHomeScreen() {
 
         <View style={styles.spacer} />
 
+        {isOnline && nearbyLoads.length > 0 && (
+          <View style={styles.loadsBadge}>
+            <Ionicons name="cube-outline" size={13} color={C.status.green} />
+            <Text style={styles.loadsBadgeText}>
+              {nearbyLoads.length} load{nearbyLoads.length === 1 ? '' : 's'} near you
+            </Text>
+          </View>
+        )}
+
         {showActiveJob && activeJob && (
           <Pressable
             style={styles.activeJobCard}
@@ -115,11 +144,9 @@ export default function DriverHomeScreen() {
             <Text style={styles.loadsBtnText}>Browse loads near me</Text>
             <Text style={styles.loadsBtnCount}>
               {isOnline
-                ? loadsCount === null
-                  ? 'Loading…'
-                  : loadsCount === 0
-                    ? 'No loads near you right now'
-                    : `${loadsCount} load${loadsCount === 1 ? '' : 's'} available`
+                ? nearbyLoads.length === 0
+                  ? 'No loads near you right now'
+                  : `${nearbyLoads.length} load${nearbyLoads.length === 1 ? '' : 's'} available`
                 : 'Go online to see loads'}
             </Text>
           </Pressable>
@@ -133,9 +160,12 @@ function getStyles(C: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background.primary },
     mapContainer: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
-    pinMe: { position: 'absolute', top: '45%', left: '45%' },
-    pinLoad1: { position: 'absolute', top: '30%', left: '60%' },
-    pinLoad2: { position: 'absolute', top: '55%', left: '25%' },
+    mePin: {
+      position: 'absolute',
+      top: 0, left: 0, right: 0, bottom: 0,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     overlay: { flex: 1 },
     appbar: {
       flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -147,6 +177,26 @@ function getStyles(C: ColorPalette) {
     onlineToggle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     onlineLabel: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.medium },
     spacer: { flex: 1 },
+    loadsBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      alignSelf: 'flex-start',
+      marginHorizontal: Spacing.screenH,
+      marginBottom: Spacing.gap,
+      backgroundColor: 'rgba(0,200,83,0.10)',
+      borderWidth: 1,
+      borderColor: 'rgba(0,200,83,0.25)',
+      borderRadius: Radius.pill,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+    },
+    loadsBadgeText: {
+      fontSize: Typography.sizes.chip,
+      color: C.status.green,
+      fontWeight: Typography.weights.medium,
+      fontVariant: ['tabular-nums'],
+    },
     activeJobCard: {
       marginHorizontal: Spacing.screenH, marginBottom: Spacing.gap,
       backgroundColor: 'rgba(20,20,20,0.92)', borderRadius: Radius.card,

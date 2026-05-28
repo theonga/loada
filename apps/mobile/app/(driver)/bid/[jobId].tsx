@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { Alert, View, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,9 +8,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { EarningsBar } from '@components/ui/EarningsBar';
 import { Skeleton } from '@components/ui/Skeleton';
-import { getJobById, placeBid, getEarningsSummary } from '@services';
+import { getJobById, placeBid, getEarningsSummary, getMyDriverProfile, getMySubscription } from '@services';
 import { useAuthStore } from '@store/auth.store';
-import type { Job, EarningsSummary } from '@/types';
+import type { Job, EarningsSummary, DriverProfile, Subscription } from '@/types';
 
 export default function PlaceBidScreen() {
   const router = useRouter();
@@ -18,6 +18,8 @@ export default function PlaceBidScreen() {
   const user = useAuthStore((s) => s.user);
   const [job, setJob] = useState<Job | null>(null);
   const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
+  const [driverProfile, setDriverProfile] = useState<DriverProfile | null>(null);
+  const [subscription, setSubscription] = useState<Subscription | null | undefined>(undefined);
   const [price, setPrice] = useState('');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -31,18 +33,37 @@ export default function PlaceBidScreen() {
     Promise.all([
       getJobById(jobId),
       getEarningsSummary(user?.id ?? ''),
+      getMyDriverProfile(),
+      getMySubscription(),
     ])
-      .then(([j, e]) => {
+      .then(([j, e, p, s]) => {
         setJob(j);
         setEarnings(e);
+        setDriverProfile(p);
+        setSubscription(s);
         setPrice(String(Math.round(j.askingPrice * 0.96)));
         setLoading(false);
       })
       .catch(() => { setError('Could not load job details.'); setLoading(false); });
   }, [jobId]);
 
+  const docsApproved = driverProfile?.documentStatus === 'APPROVED';
+  const subActive = subscription?.status === 'ACTIVE' || subscription?.status === 'TRIAL';
+  const canBid = docsApproved && subActive;
+
+  const blockReason = !docsApproved
+    ? { title: 'Documents not approved', body: 'Your documents must be approved before you can place bids.', cta: 'Upload documents', action: () => router.push('/(driver)/documents') }
+    : { title: 'Subscription required', body: 'You need an active subscription to place bids on Loada.', cta: 'Subscribe now', action: () => router.push('/(driver)/subscription') };
+
   const handleBid = async () => {
     if (!numPrice || !job) return;
+    if (!canBid) {
+      Alert.alert(blockReason.title, blockReason.body, [
+        { text: 'Later', style: 'cancel' },
+        { text: blockReason.cta, onPress: blockReason.action },
+      ]);
+      return;
+    }
     setSubmitting(true);
     setError('');
     try {
@@ -97,6 +118,16 @@ export default function PlaceBidScreen() {
           <Text style={styles.route}>{job.originAddress.split(',')[0]} → {job.destAddress.split(',')[0]}</Text>
           <Text style={styles.distance}>{job.cargoDescription}</Text>
         </View>
+
+        {!canBid && subscription !== undefined && (
+          <Pressable style={styles.blockedBanner} onPress={blockReason.action}>
+            <Ionicons name="lock-closed-outline" size={16} color={C.status.amber} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.blockedTitle}>{blockReason.title}</Text>
+              <Text style={styles.blockedSub}>{blockReason.cta} →</Text>
+            </View>
+          </Pressable>
+        )}
 
         <View style={styles.priceInputArea}>
           <Text style={styles.priceLabel}>YOUR BID</Text>
@@ -162,6 +193,18 @@ function getStyles(C: ColorPalette) {
     askingRef: { fontSize: Typography.sizes.label, color: C.text.tertiary, fontVariant: ['tabular-nums'] },
     earningsSection: { gap: Spacing.gap },
     earningsTitle: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.semibold, color: C.text.secondary, textTransform: 'uppercase', letterSpacing: 1 },
+    blockedBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.gapSm,
+      backgroundColor: 'rgba(255,179,0,0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,179,0,0.25)',
+      borderRadius: Radius.button,
+      padding: Spacing.card,
+    },
+    blockedTitle: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.semibold, color: C.status.amber },
+    blockedSub: { fontSize: Typography.sizes.chip, color: C.text.secondary, marginTop: 2 },
     errorText: { color: C.status.red, fontSize: Typography.sizes.label, textAlign: 'center' },
     footer: { padding: Spacing.screenH },
     btn: { height: Components.buttonHeight, backgroundColor: C.accent, borderRadius: Radius.button, alignItems: 'center', justifyContent: 'center' },

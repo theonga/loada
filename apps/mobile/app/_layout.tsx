@@ -27,7 +27,7 @@ import { AppAlertHost } from '@components/ui/AppAlert';
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
-  const { isAuthenticated, role, hydrate } = useAuthStore();
+  const { isAuthenticated, role, hydrate, user } = useAuthStore();
   const router = useRouter();
   const segments = useSegments();
   const navigationState = useRootNavigationState();
@@ -54,6 +54,8 @@ function RootLayoutNav() {
     if (!isAuthenticated && !inAuthGroup) {
       disconnectAll();
       router.replace('/(auth)');
+    } else if (isAuthenticated && !inAuthGroup && user && !user.name.trim()) {
+      router.replace('/(auth)/name');
     } else if (isAuthenticated && inAuthGroup && !inOnboarding) {
       router.replace(role === 'driver' ? '/(driver)' : '/(shipper)');
     }

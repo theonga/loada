@@ -1,6 +1,6 @@
-import React, { useMemo } from "react";
-import { Tabs } from "expo-router";
-import { StyleSheet } from "react-native";
+import React, { useMemo, useState, useEffect } from "react";
+import { Tabs, useRouter } from "expo-router";
+import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -9,11 +9,34 @@ import {
   Components,
   Typography,
 } from "@constants/theme";
+import { getMyDriverProfile } from "@services";
 
 export default function DriverLayout() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+  const [vehicleOk, setVehicleOk] = useState(false);
+
+  useEffect(() => {
+    getMyDriverProfile()
+      .then((p) => {
+        if (p.truckMake === 'Unknown') {
+          router.replace('/(auth)/driver-setup/vehicle');
+        } else {
+          setVehicleOk(true);
+        }
+      })
+      .catch(() => setVehicleOk(true));
+  }, []);
+
+  if (!vehicleOk) {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.background.primary, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={C.accent} />
+      </View>
+    );
+  }
 
   return (
     <Tabs

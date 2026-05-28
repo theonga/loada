@@ -470,6 +470,17 @@ export async function updateDriverProfile(fields: {
   await api.patch('/drivers/me', fields);
 }
 
+export async function getNearbyDrivers(lat: number, lng: number, radiusKm = 25): Promise<DriverProfile[]> {
+  try {
+    const data = await api.get<{ drivers: ApiDriverProfile[] }>(
+      `/drivers/nearby?lat=${lat}&lng=${lng}&radiusKm=${radiusKm}`,
+    );
+    return (data.drivers ?? []).map(toDriverProfile);
+  } catch {
+    return [];
+  }
+}
+
 export async function getMySubscription(): Promise<import('@/types').Subscription | null> {
   try {
     const data = await api.get<{ subscription: import('@/types').Subscription }>('/subscriptions/me');

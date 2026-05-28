@@ -26,11 +26,8 @@ export default function NameScreen() {
     try {
       await updateProfile(name.trim());
       updateName(name.trim());
-      if (role === 'driver') {
-        router.replace('/(auth)/driver-setup/vehicle');
-      } else {
-        router.replace('/(shipper)');
-      }
+      // All new users must accept Terms of Use and Privacy Policy before proceeding.
+      router.replace('/(auth)/terms');
     } catch {
       setError('Could not save your name. Please try again.');
       setLoading(false);
