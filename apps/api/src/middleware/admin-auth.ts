@@ -8,13 +8,22 @@ export interface AdminJwtPayload {
   type: "admin";
 }
 
+// Name of the httpOnly cookie used by the admin panel. Exported so the login
+// and logout routes set/clear the same name.
+export const ADMIN_SESSION_COOKIE = "admin_session";
+
 export async function requireAdmin(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  // Prefer the httpOnly cookie (admin panel). Fall back to an Authorization
+  // header so we can keep CLI scripts and tests working.
+  const cookieToken = (req as unknown as { cookies?: Record<string, string> }).cookies?.[ADMIN_SESSION_COOKIE];
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer ")) {
+  const headerToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const token = cookieToken ?? headerToken;
+
+  if (!token) {
     return reply.status(401).send({ success: false, error: { code: "UNAUTHORIZED", message: "Admin token required" } });
   }
 
-  const token = authHeader.slice(7);
   let payload: AdminJwtPayload;
 
   try {

@@ -125,7 +125,7 @@ EXPO_PUBLIC_SENTRY_DSN=
 
 The canonical data model lives at `apps/api/prisma/schema.prisma`.
 When adding fields, always update `apps/api/prisma/schema.prisma` first,
-run `npm run db:migrate` from `apps/api/` (or `npm run db:push` for dev without migration files),
+run `npm run db:migrate` from `apps/api/` to generate a versioned migration (do **not** use `db:push` — it bypasses migration history and is dev-prototype only),
 then update the affected service code. Never write raw SQL migrations by hand.
 
 ### Tonnage tiers
@@ -934,7 +934,7 @@ component that wraps all text in the app.
 
 ### Security
 
-- Phone numbers stored hashed in the database — never in plaintext
+- Phone numbers: plaintext `phone` column for SMS / display, plus a deterministic HMAC-SHA256 `phoneHash` column (using `PHONE_PEPPER`) as the lookup index. Every login lookup goes via `phoneHash`. RDS encryption-at-rest covers the disk-level threat. The pepper must live outside the DB (e.g. AWS Secrets Manager). Never log phone numbers.
 - OTP codes expire after 10 minutes, single use only
 - JWT secrets are long random strings — minimum 64 characters
 - All S3 buckets are private — public access blocked at bucket policy level

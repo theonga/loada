@@ -1,12 +1,16 @@
 "use client";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { api } from "@/lib/api";
 
 export default function Root() {
   const router = useRouter();
   useEffect(() => {
-    const token = localStorage.getItem("loada_admin_token");
-    router.replace(token ? "/dashboard" : "/login");
+    // Session lives in an httpOnly cookie we can't read from JS. Ask the API
+    // whether the cookie is still valid and route accordingly.
+    api.getMe()
+      .then(() => router.replace("/dashboard"))
+      .catch(() => router.replace("/login"));
   }, [router]);
   return null;
 }

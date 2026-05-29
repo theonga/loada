@@ -1,21 +1,17 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3000";
 const ADMIN_PREFIX = `${API_BASE}/v1/admin`;
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("loada_admin_token");
-}
-
 async function request<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = getToken();
   const res = await fetch(`${ADMIN_PREFIX}${path}`, {
     ...options,
+    // Send the httpOnly session cookie set by /auth/login. Required for every
+    // admin call now that we no longer pass a Bearer token from JS.
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
     },
   });
@@ -24,11 +20,8 @@ async function request<T>(
 
   if (!body.success) {
     const msg = body.error?.message ?? "Unknown error";
-    if (res.status === 401) {
-      if (typeof window !== "undefined") {
-        localStorage.removeItem("loada_admin_token");
-        window.location.href = "/login";
-      }
+    if (res.status === 401 && typeof window !== "undefined" && window.location.pathname !== "/login") {
+      window.location.href = "/login";
     }
     throw new Error(msg);
   }
@@ -38,10 +31,16 @@ async function request<T>(
 
 export const api = {
   login: (username: string, password: string) =>
-    request<{ token: string; username: string }>("/auth/login", {
+    request<{ username: string }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
     }),
+
+  logout: () =>
+    request<null>("/auth/logout", { method: "POST" }),
+
+  getMe: () =>
+    request<{ username: string }>("/auth/me"),
 
   getStats: () =>
     request<{ stats: AdminStats }>("/stats"),

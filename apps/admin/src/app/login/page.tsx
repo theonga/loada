@@ -16,8 +16,8 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const data = await api.login(username, password);
-      localStorage.setItem("loada_admin_token", data.token);
+      await api.login(username, password);
+      // Session lives in the httpOnly cookie set by the API. No localStorage.
       router.replace("/dashboard");
     } catch (err) {
       setError((err as Error).message);

@@ -1,4 +1,11 @@
 import "dotenv/config";
+import { validateEnv } from "./lib/env";
+
+// Validate env before importing any module that reads from process.env at top
+// level — keeps the failure message clear ("missing X") instead of a stack
+// trace from somewhere deep in a Prisma or AWS SDK constructor.
+validateEnv();
+
 import { buildApp } from "./app";
 import { createSocketServer, setSocketServer } from "./lib/socket";
 import { startWorkers } from "./workers";

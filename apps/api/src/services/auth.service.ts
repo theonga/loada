@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { redis } from "@/lib/redis";
 import { smsOTP } from "@/lib/bulkit";
 import { getConfigNum } from "@/lib/app-config";
+import { hashPhoneLookup } from "@/lib/phone-hash";
 import bcrypt from "bcryptjs";
 import { UserRole, type Prisma } from "@prisma/client";
 
@@ -15,11 +16,27 @@ function generateOTP(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
-function hashPhone(phone: string): string {
-  return bcrypt.hashSync(phone, 10);
-}
+const OTP_RATE_WINDOW_SECONDS = 600; // 10 minutes
+const OTP_RATE_MAX_PER_WINDOW = 3;
 
 export async function generateAndSendOTP(phone: string): Promise<string | null> {
+  // Per-phone rate limit. Without this a single phone can be SMS-bombed (Loada
+  // pays BulkIT per message) and the receiver gets harassed. Counter expires
+  // automatically, so abusive bursts cool off but legitimate retries after the
+  // window still work.
+  const rateKey = `loada:otp:rate:${phone}`;
+  const count = await redis.incr(rateKey);
+  if (count === 1) {
+    await redis.expire(rateKey, OTP_RATE_WINDOW_SECONDS);
+  }
+  if (count > OTP_RATE_MAX_PER_WINDOW) {
+    const ttl = await redis.ttl(rateKey);
+    throw Object.assign(
+      new Error(`Too many OTP requests. Try again in ${Math.max(1, Math.ceil(ttl / 60))} minute(s).`),
+      { statusCode: 429, code: "OTP_RATE_LIMITED" },
+    );
+  }
+
   const otp = generateOTP();
   const otpTtl = await getConfigNum("otp_expiry_seconds");
   await redis.setex(`loada:otp:${phone}`, otpTtl, otp);
@@ -38,10 +55,23 @@ export async function verifyOTPAndLogin(
   }
   await redis.del(`loada:otp:${phone}`);
 
+  // Prefer the indexed HMAC lookup. Fall back to plaintext for any pre-backfill
+  // row that still has phoneHash = null.
+  const phoneHash = hashPhoneLookup(phone);
   let user = await prisma.user.findUnique({
-    where: { phone },
+    where: { phoneHash },
     include: { shipperProfile: true, driverProfile: true },
   });
+  if (!user) {
+    user = await prisma.user.findUnique({
+      where: { phone },
+      include: { shipperProfile: true, driverProfile: true },
+    });
+    if (user && !user.phoneHash) {
+      // Lazy backfill: stamp the hash on first login so the next lookup is fast.
+      await prisma.user.update({ where: { id: user.id }, data: { phoneHash } });
+    }
+  }
 
   const isNewUser = !user;
 
@@ -50,6 +80,7 @@ export async function verifyOTPAndLogin(
     user = await prisma.user.create({
       data: {
         phone,
+        phoneHash,
         name: "",
         role: requestedRole,
         ...(requestedRole === "SHIPPER" || requestedRole === "BOTH"
@@ -200,6 +231,3 @@ export async function verifyAndRotateRefreshToken(
 export async function logout(userId: string): Promise<void> {
   await redis.del(`loada:refresh:${userId}`);
 }
-
-// Suppress unused import warning - hashPhone used for future phone hashing
-void hashPhone;

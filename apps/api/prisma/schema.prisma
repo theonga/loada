@@ -12,6 +12,11 @@ generator client {
 model User {
   id                String          @id @default(uuid())
   phone             String          @unique
+  // HMAC-SHA256 of phone using PHONE_PEPPER. Deterministic, indexed, used as
+  // the primary lookup key. Kept nullable during backfill — code paths must
+  // tolerate null and fall back to the plaintext `phone` column. Once every
+  // existing row is backfilled, a follow-up migration makes this NOT NULL.
+  phoneHash         String?         @unique
   name              String
   email             String?
   role              UserRole

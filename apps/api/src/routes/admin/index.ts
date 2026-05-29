@@ -8,7 +8,12 @@ import { getAllConfig, setConfig } from "@/lib/app-config";
 import type { ConfigKey } from "@/lib/app-config";
 import { resolveStoredFiles } from "@/lib/s3";
 import { adminCancelJob, adminBulkCancelJobs, adminSetJobStatus } from "@/services/job.service";
+import { ADMIN_SESSION_COOKIE } from "@/middleware/admin-auth";
 import type { JobStatus } from "@prisma/client";
+
+const ADMIN_SESSION_HOURS = 8;
+const ADMIN_SESSION_MAX_AGE = ADMIN_SESSION_HOURS * 60 * 60;
+const isProd = () => process.env.NODE_ENV === "production";
 import { getOnlineShipperCount } from "@/lib/socket";
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -29,16 +34,40 @@ export async function adminRoutes(app: FastifyInstance) {
       const token = jwt.sign(
         { adminId: admin.id, username: admin.username, type: "admin" },
         process.env.ADMIN_JWT_SECRET ?? process.env.JWT_SECRET!,
-        { expiresIn: "8h" },
+        { expiresIn: `${ADMIN_SESSION_HOURS}h` },
       );
 
-      return reply.send({ success: true, data: { token, username: admin.username } });
+      // httpOnly cookie keeps the JWT out of reach of any XSS on the admin
+      // panel. Cross-subdomain fetch from admin.loada.app to api.loada.app is
+      // same-site so SameSite=Lax is enough; production needs Secure over HTTPS.
+      reply.setCookie(ADMIN_SESSION_COOKIE, token, {
+        httpOnly: true,
+        secure: isProd(),
+        sameSite: "lax",
+        path: "/",
+        maxAge: ADMIN_SESSION_MAX_AGE,
+      });
+
+      return reply.send({ success: true, data: { username: admin.username } });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
       }
       return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
     }
+  });
+
+  app.post("/auth/logout", async (_req, reply) => {
+    reply.clearCookie(ADMIN_SESSION_COOKIE, { path: "/" });
+    return reply.send({ success: true, data: null });
+  });
+
+  // Cheap session probe used by the admin panel's layout guard. Returns 401
+  // when the cookie is missing/invalid so the client can redirect to /login
+  // without leaning on localStorage presence as a proxy for "logged in".
+  app.get("/auth/me", { preHandler: [requireAdmin] }, async (req, reply) => {
+    const admin = getAdmin(req);
+    return reply.send({ success: true, data: { username: admin.username } });
   });
 
   // ── Config ───────────────────────────────────────────────────────────────────

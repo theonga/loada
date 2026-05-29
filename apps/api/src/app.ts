@@ -35,7 +35,18 @@ export async function buildApp() {
     Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
   }
 
-  await app.register(helmet, { contentSecurityPolicy: false });
+  // Helmet's default CSP is strict and fine for a JSON API. The previous
+  // `false` was a workaround for an earlier embedded HTML test page that no
+  // longer exists.
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "default-src": ["'none'"],
+        "frame-ancestors": ["'none'"],
+      },
+    },
+  });
   // Without explicit `methods`, @fastify/cors only allows GET/HEAD/POST on
   // preflight responses, which silently breaks every PATCH/PUT/DELETE call
   // (admin cancel-job, approve-docs, suspend-user, adjust-wallet, …).

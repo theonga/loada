@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
+import { api } from "@/lib/api";
 
 // ── Sidebar icons (Lucide-style, 1.8 stroke) ─────────────────────────
 
@@ -60,19 +61,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
-    const token = localStorage.getItem("loada_admin_token");
-    if (!token) { router.replace("/login"); return; }
-    try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      setUsername(payload.username ?? "admin");
-    } catch { /* ignore — token is opaque */ }
-  }, [router]);
+    // Session lives in an httpOnly cookie. Probe /auth/me to verify it's
+    // still valid; the api helper redirects to /login on 401 automatically.
+    api.getMe()
+      .then((me) => setUsername(me.username))
+      .catch(() => { /* api helper handles the 401 redirect */ });
+  }, []);
 
   // Close the drawer on route change (mobile)
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
 
-  function logout() {
-    localStorage.removeItem("loada_admin_token");
+  async function logout() {
+    try { await api.logout(); } catch { /* clear anyway */ }
     router.replace("/login");
   }
 

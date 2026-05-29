@@ -1,6 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import dayjs from "dayjs";
 import bcrypt from "bcryptjs";
+import { hashPhoneLookup } from "../src/lib/phone-hash";
 
 const prisma = new PrismaClient();
 
@@ -46,9 +47,11 @@ async function main() {
   await prisma.admin.deleteMany();
 
   // ── Shippers ────────────────────────────────────────────────────────────────
+  const shipper1Phone = "+263771000001";
   const shipper1 = await prisma.user.create({
     data: {
-      phone: "+263771000001",
+      phone: shipper1Phone,
+      phoneHash: hashPhoneLookup(shipper1Phone),
       name: "Tendai Moyo",
       role: "SHIPPER",
       isVerified: true,
@@ -59,9 +62,11 @@ async function main() {
     include: { shipperProfile: true },
   });
 
+  const shipper2Phone = "+263771000002";
   const shipper2 = await prisma.user.create({
     data: {
-      phone: "+263771000002",
+      phone: shipper2Phone,
+      phoneHash: hashPhoneLookup(shipper2Phone),
       name: "Rudo Chikwanda",
       role: "SHIPPER",
       isVerified: true,
@@ -89,6 +94,7 @@ async function main() {
     const user = await prisma.user.create({
       data: {
         phone: d.phone,
+        phoneHash: hashPhoneLookup(d.phone),
         name: d.name,
         role: "DRIVER",
         isVerified: true,
@@ -316,14 +322,28 @@ async function main() {
 
   // ── Admin user ───────────────────────────────────────────────────────────────
   const ADMIN_USERNAME = process.env.ADMIN_SEED_USERNAME ?? "admin";
-  const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD ?? "changeme123";
+  const ADMIN_PASSWORD = process.env.ADMIN_SEED_PASSWORD;
+
+  // Refuse to seed a default password in production. A known-credential admin
+  // account is one of the fastest ways to lose the platform — fail loudly so
+  // an operator has to set ADMIN_SEED_PASSWORD explicitly before deploying.
+  if (!ADMIN_PASSWORD && process.env.NODE_ENV === "production") {
+    throw new Error(
+      "ADMIN_SEED_PASSWORD must be set when seeding in production. Refusing to create an admin with a default password.",
+    );
+  }
+  const resolvedPassword = ADMIN_PASSWORD ?? "changeme123";
 
   const existingAdmin = await prisma.admin.findUnique({ where: { username: ADMIN_USERNAME } });
   if (!existingAdmin) {
-    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+    const passwordHash = await bcrypt.hash(resolvedPassword, 12);
     await prisma.admin.create({ data: { username: ADMIN_USERNAME, passwordHash } });
-    console.log(`  Admin created: ${ADMIN_USERNAME} / ${ADMIN_PASSWORD}`);
-    console.log(`  !! Change the admin password after first login !!`);
+    if (ADMIN_PASSWORD) {
+      console.log(`  Admin created: ${ADMIN_USERNAME} (password from ADMIN_SEED_PASSWORD)`);
+    } else {
+      console.log(`  Admin created: ${ADMIN_USERNAME} / ${resolvedPassword}`);
+      console.log(`  !! Dev default — change immediately and set ADMIN_SEED_PASSWORD in any non-dev env !!`);
+    }
   } else {
     console.log(`  Admin '${ADMIN_USERNAME}' already exists — skipped`);
   }
