@@ -17,7 +17,6 @@ export interface EarningsSummary {
   averagePerJob: number;
   bestDay: DayEarnings | null;
   byDay: DayEarnings[];
-  subscriptionCost: number;
   trendPercent: number | null;
   walletBalance: number;
 }
@@ -103,7 +102,6 @@ export async function getEarningsSummary(
     averagePerJob: jobs.length > 0 ? Math.round((totalEarned / jobs.length) * 100) / 100 : 0,
     bestDay,
     byDay,
-    subscriptionCost: 0,
     trendPercent,
     walletBalance: wallet ? parseFloat(wallet.balance.toString()) : 0,
   };

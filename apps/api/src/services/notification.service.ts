@@ -4,6 +4,16 @@ import { sendSMS } from "@/lib/bulkit";
 import { getNearbyDrivers } from "./location.service";
 import type { Job } from "@prisma/client";
 
+// Naming convention used throughout this service:
+//   - `driverId`      = DriverProfile.id      (NOT User.id)
+//   - `shipperId`     = ShipperProfile.id     (NOT User.id)
+//   - `userId`        = User.id (only when explicitly named so)
+//
+// The `Notification.userId` column always stores User.id — we resolve the
+// recipient's User.id from their profile here before writing the row, so
+// downstream consumers (admin panel, mobile notifications screen) can join
+// Notification → User without surprises.
+
 async function pushOrSms(
   userId: string,
   fcmToken: string | null,

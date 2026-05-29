@@ -1,7 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { verifyResponseHash } from "@/lib/paynow";
 import { confirmDeposit } from "@/services/wallet.service";
-import { handlePaymentConfirmed } from "@/services/subscription.service";
 import { prisma } from "@/lib/prisma";
 
 export const paymentRoutes: FastifyPluginAsync = async (fastify) => {
@@ -41,7 +40,7 @@ export const paymentRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(200).send("ok");
     }
 
-    // 1. Check if this is a wallet deposit
+    // All Paynow payments are wallet deposits — no subscriptions on this platform.
     const walletTx = await prisma.walletTransaction.findFirst({
       where: { paynowRef: reference, type: "DEPOSIT", status: "PENDING" },
     });
@@ -50,20 +49,9 @@ export const paymentRoutes: FastifyPluginAsync = async (fastify) => {
       await confirmDeposit(walletTx.id).catch((err) => {
         request.log.error({ err, transactionId: walletTx.id }, "[Paynow] confirmDeposit failed");
       });
-      return reply.code(200).send("ok");
     }
 
-    // 2. Check if this is a subscription payment
-    const sub = await prisma.subscription.findFirst({
-      where: { paynowReference: reference },
-    });
-
-    if (sub) {
-      await handlePaymentConfirmed(sub.id, paynowRef).catch((err) => {
-        request.log.error({ err, subscriptionId: sub.id }, "[Paynow] handlePaymentConfirmed failed");
-      });
-    }
-
+    void paynowRef;
     return reply.code(200).send("ok");
   });
 

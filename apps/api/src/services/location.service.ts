@@ -85,9 +85,8 @@ export async function getNearbyDrivers(
       capacityTonnes: { gte: requiredTonnes },
       ...(requiredTruckType ? { truckType: requiredTruckType as import("@prisma/client").TruckType } : {}),
       documentStatus: "APPROVED",
-      subscription: { status: { in: ["ACTIVE", "TRIAL"] } },
     },
-    include: { user: true, subscription: true },
+    include: { user: true },
   });
 
   return drivers;

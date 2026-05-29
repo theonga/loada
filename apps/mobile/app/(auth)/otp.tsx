@@ -20,7 +20,7 @@ export default function OTPScreen() {
   const [resendCooldown, setResendCooldown] = useState(RESEND_COOLDOWN_SECONDS);
   const [resending, setResending] = useState(false);
   const inputRef = useRef<TextInput>(null);
-  const { setUser, setToken, role, pendingPhone } = useAuthStore();
+  const { setUser, setToken, setRole, pendingPhone } = useAuthStore();
 
   useEffect(() => {
     if (devCode) setCode(devCode);
@@ -53,6 +53,25 @@ export default function OTPScreen() {
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
+  const finishLogin = (
+    user: import('@/types').User,
+    token: string,
+    isNewUser: boolean,
+    activeRole: 'SHIPPER' | 'DRIVER' | 'BOTH',
+  ) => {
+    setUser(user);
+    setToken(token);
+    const ui: 'shipper' | 'driver' = activeRole === 'DRIVER' ? 'driver' : 'shipper';
+    setRole(ui);
+    if (isNewUser) {
+      router.replace('/(auth)/name');
+    } else if (ui === 'driver') {
+      router.replace('/(driver)');
+    } else {
+      router.replace('/(shipper)');
+    }
+  };
+
   const handleVerify = async () => {
     if (code.length !== CODE_LENGTH) return;
     if (!pendingPhone) {
@@ -62,16 +81,8 @@ export default function OTPScreen() {
     setLoading(true);
     setError('');
     try {
-      const { user, token, isNewUser } = await verifyOTP(pendingPhone, code);
-      setUser(user);
-      setToken(token);
-      if (isNewUser) {
-        router.replace('/(auth)/name');
-      } else if (role === 'driver') {
-        router.replace('/(driver)');
-      } else {
-        router.replace('/(shipper)');
-      }
+      const { user, token, isNewUser, activeRole } = await verifyOTP(pendingPhone, code);
+      finishLogin(user, token, isNewUser, activeRole);
     } catch (err) {
       const msg = (err as { message?: string }).message;
       setError(msg ?? 'Invalid code. Try again.');
@@ -98,16 +109,8 @@ export default function OTPScreen() {
     setLoading(true);
     setError('');
     try {
-      const { user, token, isNewUser } = await verifyOTP(pendingPhone, digits);
-      setUser(user);
-      setToken(token);
-      if (isNewUser) {
-        router.replace('/(auth)/name');
-      } else if (role === 'driver') {
-        router.replace('/(driver)');
-      } else {
-        router.replace('/(shipper)');
-      }
+      const { user, token, isNewUser, activeRole } = await verifyOTP(pendingPhone, digits);
+      finishLogin(user, token, isNewUser, activeRole);
     } catch (err) {
       const msg = (err as { message?: string }).message;
       setError(msg ?? 'Invalid code. Try again.');

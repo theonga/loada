@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 import { sendOTPSchema, verifyOTPSchema, updateProfileSchema } from "@/schemas/auth.schema";
 import {
   generateAndSendOTP,
@@ -7,6 +7,7 @@ import {
   verifyAndRotateRefreshToken,
   logout,
   updateUserProfile,
+  switchActiveRole,
 } from "@/services/auth.service";
 import { requireAuth } from "@/middleware/auth";
 
@@ -29,7 +30,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/verify-otp", async (req, reply) => {
     try {
       const { phone, code, role } = verifyOTPSchema.parse(req.body);
-      const { user, accessToken: rawPayload, refreshToken, isNewUser } = await verifyOTPAndLogin(phone, code, role);
+      const { user, accessToken: rawPayload, refreshToken, isNewUser, activeRole } = await verifyOTPAndLogin(phone, code, role);
 
       const payload = JSON.parse(rawPayload) as { userId: string; role: string };
       const accessToken = app.jwt.sign(payload, { expiresIn: "15m" });
@@ -38,7 +39,7 @@ export async function authRoutes(app: FastifyInstance) {
       reply.setCookie("refreshToken", refreshJwt, { httpOnly: true, path: "/v1/auth/refresh", sameSite: "strict" });
       reply.setCookie("rt", refreshToken, { httpOnly: true, path: "/", sameSite: "strict" });
 
-      return reply.send({ success: true, data: { user, accessToken, refreshToken, isNewUser } });
+      return reply.send({ success: true, data: { user, accessToken, refreshToken, isNewUser, activeRole } });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
@@ -72,6 +73,23 @@ export async function authRoutes(app: FastifyInstance) {
     reply.clearCookie("refreshToken");
     reply.clearCookie("rt");
     return reply.send({ success: true, data: null });
+  });
+
+  app.post("/switch-role", { preHandler: [requireAuth] }, async (req, reply) => {
+    try {
+      const { role } = z.object({ role: z.enum(["SHIPPER", "DRIVER"]) }).parse(req.body);
+      const user = (req as unknown as Record<string, { id: string }>)["authUser"];
+      const { accessToken: rawPayload, activeRole } = await switchActiveRole(user.id, role);
+      const payload = JSON.parse(rawPayload) as { userId: string; role: string };
+      const accessToken = app.jwt.sign(payload, { expiresIn: "15m" });
+      return reply.send({ success: true, data: { accessToken, activeRole } });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: err.issues[0]?.message ?? "Invalid input" } });
+      }
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
+    }
   });
 
   app.patch("/me", { preHandler: [requireAuth] }, async (req, reply) => {

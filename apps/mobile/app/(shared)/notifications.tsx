@@ -20,7 +20,7 @@ const NOTIF_ICONS: Record<AppNotification['type'], IoniconName> = {
   MATCH_CONFIRMED: 'flash',
   DRIVER_EN_ROUTE: 'car-outline',
   DELIVERED: 'checkmark-circle',
-  SUBSCRIPTION: 'wallet-outline',
+  WALLET: 'wallet-outline',
   SYSTEM: 'megaphone-outline',
 };
 
@@ -55,7 +55,7 @@ export default function NotificationsScreen() {
     MATCH_CONFIRMED: C.accent,
     DRIVER_EN_ROUTE: C.status.blue,
     DELIVERED: C.status.green,
-    SUBSCRIPTION: C.accent,
+    WALLET: C.accent,
     SYSTEM: C.text.secondary,
   }), [C]);
 

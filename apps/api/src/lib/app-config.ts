@@ -5,16 +5,12 @@ const CACHE_TTL = 60; // config values cached for 60s in Redis
 const CACHE_PREFIX = "loada:config:";
 
 export type ConfigKey =
-  | "subscription_price_weekly"
-  | "subscription_price_monthly"
-  | "subscription_price_annual"
   | "bid_ttl_seconds"
   | "initial_search_radius_km"
   | "radius_expansion_interval_seconds"
   | "radius_expansion_increment_km"
   | "radius_expansion_max_count"
   | "max_active_bids_per_driver"
-  | "trial_period_days"
   | "otp_expiry_seconds"
   | "paynow_poll_interval_seconds"
   | "paynow_poll_timeout_seconds"
@@ -31,16 +27,12 @@ export type ConfigKey =
   | "max_bid_cancel_per_week";
 
 export const CONFIG_DEFAULTS: Record<ConfigKey, string> = {
-  subscription_price_weekly: "8",
-  subscription_price_monthly: "28",
-  subscription_price_annual: "280",
   bid_ttl_seconds: "300",
   initial_search_radius_km: "25",
   radius_expansion_interval_seconds: "60",
   radius_expansion_increment_km: "15",
   radius_expansion_max_count: "3",
   max_active_bids_per_driver: "3",
-  trial_period_days: "7",
   otp_expiry_seconds: "600",
   paynow_poll_interval_seconds: "10",
   paynow_poll_timeout_seconds: "300",
@@ -58,16 +50,12 @@ export const CONFIG_DEFAULTS: Record<ConfigKey, string> = {
 };
 
 export const CONFIG_META: Record<ConfigKey, { label: string; group: string }> = {
-  subscription_price_weekly:           { label: "Weekly subscription price (USD)", group: "pricing" },
-  subscription_price_monthly:          { label: "Monthly subscription price (USD)", group: "pricing" },
-  subscription_price_annual:           { label: "Annual subscription price (USD)", group: "pricing" },
   bid_ttl_seconds:                     { label: "Bid TTL (seconds)", group: "bidding" },
   initial_search_radius_km:            { label: "Initial driver search radius (km)", group: "matching" },
   radius_expansion_interval_seconds:   { label: "Radius expansion interval (seconds)", group: "matching" },
   radius_expansion_increment_km:       { label: "Radius expansion increment (km)", group: "matching" },
   radius_expansion_max_count:          { label: "Max radius expansions", group: "matching" },
   max_active_bids_per_driver:          { label: "Max active bids per driver", group: "bidding" },
-  trial_period_days:                   { label: "Trial period (days)", group: "pricing" },
   otp_expiry_seconds:                  { label: "OTP expiry (seconds)", group: "auth" },
   paynow_poll_interval_seconds:        { label: "Paynow poll interval (seconds)", group: "payments" },
   paynow_poll_timeout_seconds:         { label: "Paynow poll timeout (seconds)", group: "payments" },

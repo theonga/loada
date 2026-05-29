@@ -147,7 +147,7 @@ export interface EarningsSummary {
 export interface AppNotification {
   id: string;
   userId: string;
-  type: 'BID_RECEIVED' | 'MATCH_CONFIRMED' | 'DRIVER_EN_ROUTE' | 'DELIVERED' | 'SUBSCRIPTION' | 'SYSTEM';
+  type: 'BID_RECEIVED' | 'MATCH_CONFIRMED' | 'DRIVER_EN_ROUTE' | 'DELIVERED' | 'WALLET' | 'SYSTEM';
   title: string;
   body: string;
   jobId?: string;

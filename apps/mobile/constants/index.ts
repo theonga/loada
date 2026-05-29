@@ -64,15 +64,3 @@ export enum BidStatus {
   EXPIRED = 'EXPIRED',
 }
 
-export enum SubscriptionPlan {
-  WEEKLY = 'WEEKLY',
-  MONTHLY = 'MONTHLY',
-  ANNUAL = 'ANNUAL',
-}
-
-export enum SubscriptionStatus {
-  TRIAL = 'TRIAL',
-  ACTIVE = 'ACTIVE',
-  EXPIRED = 'EXPIRED',
-  CANCELLED = 'CANCELLED',
-}

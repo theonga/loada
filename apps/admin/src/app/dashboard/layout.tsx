@@ -38,7 +38,7 @@ const NAV: { label: string; items: NavItem[] }[] = [
   {
     label: "Platform",
     items: [
-      { href: "/dashboard/subscriptions", label: "Wallets",       Icon: IconWallet },
+      { href: "/dashboard/wallets",       label: "Wallets",       Icon: IconWallet },
       { href: "/dashboard/config",        label: "Configuration", Icon: IconSliders },
     ],
   },

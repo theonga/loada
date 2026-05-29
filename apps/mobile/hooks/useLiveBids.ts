@@ -57,14 +57,17 @@ function parseBid(raw: RawBid): Bid {
  * Subscribes to live bid updates for a job via Socket.IO /jobs namespace.
  * Calls onBid with a normalised Bid object each time a new bid arrives.
  * Also calls onJobUpdate when job status changes (radius expanded, matched, expired).
+ * onViewerCount fires whenever the count of drivers actively viewing this job changes.
  */
 export function useLiveBids(
   jobId: string | undefined,
   onBid: (bid: Bid) => void,
   onJobUpdate?: (status: string) => void,
+  onViewerCount?: (count: number) => void,
 ) {
   const stableOnBid = useCallback(onBid, []);
   const stableOnJobUpdate = useCallback(onJobUpdate ?? (() => {}), []);
+  const stableOnViewerCount = useCallback(onViewerCount ?? (() => {}), []);
 
   useEffect(() => {
     if (!jobId) return;
@@ -86,16 +89,22 @@ export function useLiveBids(
       stableOnJobUpdate(data.status);
     };
 
+    const handleViewerCount = (data: { count: number }) => {
+      stableOnViewerCount(data.count);
+    };
+
     socket.on('job:bid_received', handleBid);
     socket.on('job:status_changed', handleStatusChange);
     socket.on('job:radius_expanded', () => stableOnJobUpdate('RADIUS_EXPANDED'));
     socket.on('job:expired', () => stableOnJobUpdate('EXPIRED'));
+    socket.on('job:viewer_count', handleViewerCount);
 
     return () => {
       socket.off('job:bid_received', handleBid);
       socket.off('job:status_changed', handleStatusChange);
       socket.off('job:radius_expanded');
       socket.off('job:expired');
+      socket.off('job:viewer_count', handleViewerCount);
       socket.emit('job:unsubscribe', { jobId });
     };
   }, [jobId]);

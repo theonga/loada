@@ -11,6 +11,7 @@ import { Skeleton } from '@components/ui/Skeleton';
 import { getJobById, placeBid, getEarningsSummary, getMyDriverProfile, getWalletBalance } from '@services';
 import { useAuthStore } from '@store/auth.store';
 import { useWalletStore } from '@store/wallet.store';
+import { useJobViewerPresence } from '@hooks/useJobViewerPresence';
 import { showAlert } from '@components/ui/AppAlert';
 import type { Job, EarningsSummary, DriverProfile } from '@/types';
 
@@ -30,6 +31,8 @@ export default function PlaceBidScreen() {
   const numPrice = parseInt(price, 10) || 0;
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+
+  useJobViewerPresence(jobId);
 
   // Commission that will be reserved when bid is placed
   const commissionAmount = numPrice > 0 ? parseFloat((numPrice * commissionPct / 100).toFixed(2)) : 0;

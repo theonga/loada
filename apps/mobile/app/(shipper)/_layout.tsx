@@ -9,11 +9,13 @@ import {
   Components,
   Typography,
 } from "@constants/theme";
+import { useShipperPresence } from "@hooks/useShipperPresence";
 
 export default function ShipperLayout() {
   const insets = useSafeAreaInsets();
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
+  useShipperPresence();
 
   return (
     <Tabs

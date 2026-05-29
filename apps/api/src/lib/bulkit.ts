@@ -112,21 +112,6 @@ export function smsDeliveryComplete(phone: string): Promise<boolean> {
   return sendSMS(phone, "Loada: Your load has been delivered. Open the app to confirm and rate your driver.");
 }
 
-export function smsSubscriptionActive(phone: string, plan: string): Promise<boolean> {
-  return sendSMS(phone, `Loada: Your ${plan} subscription is active. Start browsing loads.`);
-}
-
-export function smsSubscriptionExpiringSoon(phone: string, plan: string, hoursLeft: number): Promise<boolean> {
-  return sendSMS(
-    phone,
-    `Loada: Your ${plan} subscription expires in ${hoursLeft} hours. Renew in the app to keep access.`,
-  );
-}
-
-export function smsSubscriptionExpired(phone: string): Promise<boolean> {
-  return sendSMS(phone, "Loada: Your subscription has expired. Renew in the app to access loads.");
-}
-
 // ─── Delivery report webhook ──────────────────────────────────────────────────
 
 export function handleDeliveryReport(payload: unknown): void {

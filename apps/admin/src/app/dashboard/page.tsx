@@ -199,6 +199,12 @@ export default function DashboardPage() {
               sub={<><span className="mono">{stats.totalDrivers}</span> drivers · <span className="mono">{stats.totalShippers}</span> shippers</>}
             />
             <Kpi
+              label="Online Now"
+              value={(stats.onlineDrivers + stats.onlineShippers).toLocaleString()}
+              sub={<><span className="mono">{stats.onlineDrivers}</span> drivers · <span className="mono">{stats.onlineShippers}</span> shippers</>}
+              accent="green"
+            />
+            <Kpi
               label="Commission This Month"
               value={`$${Number(stats.commissionThisMonth ?? 0).toFixed(2)}`}
               sub="from completed jobs"
@@ -430,6 +436,14 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="stat-grid">
+            <div>
+              <div className="s-lbl">Online drivers</div>
+              <div className="s-val">{stats?.onlineDrivers ?? "—"}</div>
+            </div>
+            <div>
+              <div className="s-lbl">Online shippers</div>
+              <div className="s-val">{stats?.onlineShippers ?? "—"}</div>
+            </div>
             <div>
               <div className="s-lbl">Active jobs</div>
               <div className="s-val">{stats?.activeJobs ?? "—"}</div>

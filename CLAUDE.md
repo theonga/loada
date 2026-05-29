@@ -9,9 +9,11 @@ Read this entire file before writing any code, creating any file, or making any 
 
 Loada is a mobile logistics marketplace for truck freight — one app, two roles (shipper and driver).
 Shippers post loads. Drivers bid. Both sides negotiate price directly (InDrive model).
-Loada charges drivers a flat weekly/monthly subscription fee. No commission per job.
+Loada uses a pay-per-use wallet model: drivers top up a wallet, and Loada charges a configurable
+commission percentage on each bid (reserved on bid placement, deducted on job completion, released on bid rejection/expiry).
+There are NO subscriptions on the platform.
 Target market: Zimbabwe (launch city), expanding to Southern Africa.
-Payment rails: Paynow (EcoCash, OneMoney, card).
+Payment rails: Paynow (EcoCash, OneMoney, card) — used only for wallet top-ups.
 
 ---
 
@@ -188,7 +190,7 @@ model DriverProfile {
   lastLocationLng      Float?
   lastLocationAt       DateTime?
   user                 User               @relation(fields: [userId], references: [id])
-  subscription         Subscription?
+  wallet               DriverWallet?
   bids                 Bid[]
 }
 
@@ -252,29 +254,29 @@ model Delivery {
   updatedAt           DateTime  @updatedAt
 }
 
-model Subscription {
-  id                String             @id @default(uuid())
-  driverId          String             @unique
-  driver            DriverProfile      @relation(fields: [driverId], references: [id])
-  plan              SubscriptionPlan   // WEEKLY | MONTHLY
-  status            SubscriptionStatus // ACTIVE | EXPIRED | CANCELLED | TRIAL
-  currentPeriodEnd  DateTime
-  paynowReference   String?
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-  payments          SubscriptionPayment[]
+model DriverWallet {
+  id              String              @id @default(uuid())
+  driverId        String              @unique
+  driver          DriverProfile       @relation(fields: [driverId], references: [id])
+  balance         Decimal             @default(0) @db.Decimal(10, 2)
+  reservedBalance Decimal             @default(0) @db.Decimal(10, 2)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  transactions    WalletTransaction[]
 }
 
-model SubscriptionPayment {
-  id              String       @id @default(uuid())
-  subscriptionId  String
-  subscription    Subscription @relation(fields: [subscriptionId], references: [id])
-  amount          Decimal      @db.Decimal(10, 2)
-  currency        String       @default("USD")
-  paynowRef       String?
-  status          PaymentStatus
-  paidAt          DateTime?
-  createdAt       DateTime     @default(now())
+model WalletTransaction {
+  id         String         @id @default(uuid())
+  walletId   String
+  wallet     DriverWallet   @relation(fields: [walletId], references: [id])
+  type       WalletTxType   // DEPOSIT | COMMISSION_RESERVE | COMMISSION_RELEASE | COMMISSION_DEDUCT | REFUND
+  amount     Decimal        @db.Decimal(10, 2)
+  bidId      String?
+  jobId      String?
+  paynowRef  String?
+  note       String?
+  status     PaymentStatus  @default(PENDING)
+  createdAt  DateTime       @default(now())
 }
 
 model Message {
@@ -313,15 +315,11 @@ enum DocumentStatus  { PENDING UNDER_REVIEW APPROVED REJECTED EXPIRED }
 enum JobStatus       { DRAFT POSTED BIDDING RADIUS_EXPANDED MATCHED PICKUP_EN_ROUTE
                        PICKUP_ARRIVED LOADED IN_TRANSIT DELIVERED COMPLETED CANCELLED DISPUTED }
 enum BidStatus       { PENDING COUNTERED ACCEPTED REJECTED EXPIRED }
-enum SubscriptionPlan   { WEEKLY MONTHLY ANNUAL }
-enum SubscriptionStatus { TRIAL ACTIVE EXPIRED CANCELLED }
-enum PaymentStatus      { PENDING PAID FAILED REFUNDED }
+enum PaymentStatus   { PENDING PAID FAILED REFUNDED }
+enum WalletTxType    { DEPOSIT COMMISSION_RESERVE COMMISSION_RELEASE COMMISSION_DEDUCT REFUND }
 ```
 
-Note on `ANNUAL`: the paywall design (screen 05) shows three tiers — Weekly ($8/wk),
-Monthly ($28/mo), and Annual ($280/yr, "SAVE 32% · BEST"). `ANNUAL` is included in the
-schema to match the design. The paywall copy "cancel anytime" still applies — annual
-subscribers who cancel are downgraded at period end, not immediately refunded.
+There are no subscription enums on the platform — Loada uses the wallet/commission model only.
 
 ---
 

@@ -301,7 +301,7 @@ export async function sendOTP(phone: string): Promise<{ devOtp?: string }> {
 export async function verifyOTP(
   phone: string,
   code: string,
-): Promise<{ user: User; token: string; isNewUser: boolean }> {
+): Promise<{ user: User; token: string; isNewUser: boolean; activeRole: 'SHIPPER' | 'DRIVER' | 'BOTH' }> {
   const { role } = useAuthStore.getState();
   const apiRole = role === 'driver' ? 'DRIVER' : 'SHIPPER';
 
@@ -310,10 +310,19 @@ export async function verifyOTP(
     accessToken: string;
     refreshToken: string;
     isNewUser: boolean;
+    activeRole: 'SHIPPER' | 'DRIVER' | 'BOTH';
   }>('/auth/verify-otp', { phone, code, role: apiRole });
 
   useAuthStore.getState().setRefreshToken(data.refreshToken);
-  return { user: data.user, token: data.accessToken, isNewUser: data.isNewUser ?? false };
+  return { user: data.user, token: data.accessToken, isNewUser: data.isNewUser ?? false, activeRole: data.activeRole };
+}
+
+export async function switchRole(role: 'shipper' | 'driver'): Promise<string> {
+  const apiRole = role === 'driver' ? 'DRIVER' : 'SHIPPER';
+  const data = await api.post<{ accessToken: string; activeRole: string }>('/auth/switch-role', { role: apiRole });
+  useAuthStore.getState().setToken(data.accessToken);
+  useAuthStore.getState().setRole(role);
+  return data.accessToken;
 }
 
 export async function updateProfile(updates: { name?: string; email?: string | null }): Promise<void> {

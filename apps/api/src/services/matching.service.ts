@@ -28,7 +28,7 @@ export async function expandSearchRadius(jobId: string): Promise<void> {
   if (expansionCount >= maxExpansions) {
     await notificationQueue.add("notify", {
       type: "shipper",
-      userId: job.shipperId,
+      targetId: job.shipperId,
       jobId,
       title: "No drivers found nearby",
       body: "We couldn't find drivers in your area. Try reposting with a higher asking price.",
@@ -55,7 +55,7 @@ export async function expandSearchRadius(jobId: string): Promise<void> {
   for (const driver of newDrivers) {
     await notificationQueue.add("notify", {
       type: "driver",
-      userId: driver.id,
+      targetId: driver.id,
       jobId,
       title: "New Load Nearby",
       body: `A ${job.requiredTonnes}t load from ${job.originAddress} to ${job.destAddress} is available.`,
@@ -103,7 +103,7 @@ export async function expireBiddingSession(jobId: string): Promise<void> {
 
   await notificationQueue.add("notify", {
     type: "shipper",
-    userId: job.shipperId,
+    targetId: job.shipperId,
     jobId,
     title: "No match found",
     body: "Your load didn't get matched. Repost to try again.",

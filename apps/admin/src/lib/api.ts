@@ -82,19 +82,13 @@ export const api = {
   getJobs: (params?: JobQuery) =>
     request<PaginatedJobs>(`/jobs?${new URLSearchParams(params as Record<string, string>)}`),
 
+  getJob: (jobId: string) =>
+    request<{ job: JobDetail }>(`/jobs/${jobId}`),
+
   cancelJob: (jobId: string, reason: string) =>
     request<unknown>(`/jobs/${jobId}/cancel`, {
       method: "PATCH",
       body: JSON.stringify({ reason }),
-    }),
-
-  getSubscriptions: (params?: SubscriptionQuery) =>
-    request<PaginatedSubscriptions>(`/subscriptions?${new URLSearchParams(params as Record<string, string>)}`),
-
-  overrideSubscription: (id: string, body: { status: string; currentPeriodEnd?: string }) =>
-    request<unknown>(`/subscriptions/${id}/override`, {
-      method: "PATCH",
-      body: JSON.stringify(body),
     }),
 
   getWallets: (params?: WalletQuery) =>
@@ -131,6 +125,8 @@ export interface AdminStats {
   totalUsers: number;
   totalDrivers: number;
   totalShippers: number;
+  onlineDrivers: number;
+  onlineShippers: number;
   totalJobs: number;
   activeJobs: number;
   completedJobsToday: number;
@@ -175,7 +171,6 @@ export interface DriverRecord {
   documentStatus: string;
   isOnline: boolean;
   user: UserRecord;
-  subscription?: { status: string; plan: string; currentPeriodEnd: string } | null;
 }
 
 export interface WalletTxRecord {
@@ -200,35 +195,89 @@ export interface WalletRecord {
 export interface JobRecord {
   id: string;
   originAddress: string;
+  originLat: number;
+  originLng: number;
   destAddress: string;
+  destLat: number;
+  destLng: number;
+  cargoDescription: string;
   requiredTonnes: number;
+  specialRequirements: string[];
   askingPrice: string;
+  currency: string;
+  requiredTruckType?: string | null;
+  paymentMethod?: string | null;
   status: string;
+  searchRadiusKm: number;
+  biddingExpiresAt: string | null;
+  matchedDriverId: string | null;
+  matchedBidId: string | null;
   createdAt: string;
-  shipper: { user: UserRecord };
-  bids: Array<{ driver: { user: UserRecord } }>;
+  updatedAt: string;
+  shipper: { user: UserRecord; companyName?: string | null };
+  bids: Array<JobBidSummary>;
+  delivery: JobDeliverySummary | null;
+  _count?: { bids: number; messages: number };
 }
 
-export interface SubscriptionRecord {
+export interface JobBidSummary {
   id: string;
-  plan: string;
+  driverId: string;
+  offeredPrice: string;
+  currency: string;
   status: string;
-  currentPeriodEnd: string;
+  note?: string | null;
+  commissionAmount?: string | null;
   createdAt: string;
-  driver: { user: UserRecord };
-  payments: Array<{ amount: string; status: string; createdAt: string }>;
+  driver: {
+    id: string;
+    truckMake: string;
+    truckModel: string;
+    truckRegistration: string;
+    capacityTonnes: number;
+    user: UserRecord;
+  };
+}
+
+export interface JobDeliverySummary {
+  id: string;
+  pickupConfirmedAt: string | null;
+  pickupPhotoUrl: string | null;
+  deliveredAt: string | null;
+  deliveryPhotoUrl: string | null;
+  recipientName: string | null;
+  signatureUrl: string | null;
+}
+
+export interface JobDetail extends JobRecord {
+  messages: Array<{
+    id: string;
+    senderId: string;
+    content: string | null;
+    mediaUrl: string | null;
+    isRead: boolean;
+    createdAt: string;
+    sender: UserRecord | null;
+  }>;
+  ratings: Array<{
+    id: string;
+    score: number;
+    comment: string | null;
+    tags: string[];
+    createdAt: string;
+    fromUser: UserRecord;
+    toUser: UserRecord;
+  }>;
 }
 
 interface UserQuery { page?: string; limit?: string; role?: string; search?: string; suspended?: string }
 interface DriverQuery { page?: string; limit?: string; documentStatus?: string }
 interface JobQuery { page?: string; limit?: string; status?: string }
-interface SubscriptionQuery { page?: string; limit?: string; status?: string }
 interface WalletQuery { page?: string; limit?: string; search?: string }
 
 interface PaginatedUsers { users: UserRecord[]; total: number; page: number; limit: number }
 interface PaginatedDrivers { drivers: DriverRecord[]; total: number; page: number; limit: number }
 interface PaginatedJobs { jobs: JobRecord[]; total: number; page: number; limit: number }
-interface PaginatedSubscriptions { subscriptions: SubscriptionRecord[]; total: number; page: number; limit: number }
 export interface WalletStats {
   /** balance + reservedBalance summed across every wallet — matches stats.totalWalletFunds */
   totalHeld:      number;

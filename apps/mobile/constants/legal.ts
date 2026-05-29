@@ -65,13 +65,13 @@ You are solely responsible for any inaccuracies in your load description and for
 Loada may suspend your account immediately if any document expires or is found to be invalid.`,
   },
   {
-    heading: 'Subscription & Payments',
+    heading: 'Wallet & Commission',
     role: 'driver',
-    body: `Loada charges drivers a flat subscription fee (Weekly, Monthly, or Annual) as displayed on the subscription screen. The subscription grants access to browse loads and place bids. It does not guarantee income or any minimum number of available loads.
+    body: `Loada uses a pay-per-use wallet model. There are no subscription fees. Drivers fund their in-app wallet via Paynow (EcoCash, OneMoney, or card) and Loada charges a commission percentage on each completed job — deducted from the wallet at the time you place a bid (and refunded if the bid is rejected, expired, or cancelled).
 
-Subscriptions renew automatically at the end of each billing period. You may cancel at any time via Settings; cancellation takes effect at the end of the current paid period. No pro-rata refunds are issued for early cancellation.
+You may top up your wallet at any time. Wallet funds are non-refundable except in cases of platform error, where a manual refund will be issued at Loada's discretion. Failed bid commissions are automatically released back to your available balance.
 
-Payments are processed via Paynow (EcoCash, OneMoney, or card). If a renewal payment fails, Loada will retry once after 24 hours. If payment is still not received, your account will be suspended until payment is made. You will not be refunded for any subscription period during which your account was suspended due to non-payment.`,
+The commission percentage is displayed in the app and may be adjusted from time to time. Changes apply only to bids placed after the change becomes effective.`,
   },
   {
     heading: 'Prohibited Conduct',
@@ -79,7 +79,7 @@ Payments are processed via Paynow (EcoCash, OneMoney, or card). If a renewal pay
 
 • Create false, misleading, or duplicate listings or accounts.
 • Harass, threaten, abuse, or discriminate against other users.
-• Arrange cash payments outside the Loada system in order to evade platform fees or subscriptions.
+• Arrange cash payments outside the Loada system in order to evade platform commission fees.
 • Reverse-engineer, scrape, decompile, or interfere with the Loada platform or infrastructure.
 • Use the platform for any unlawful purpose, including the transport of illegal goods.
 • Impersonate any person or entity, or misrepresent your affiliation with any person or entity.
@@ -104,7 +104,7 @@ To the maximum extent permitted by Zimbabwean law, Loada is not liable for:
 • Disputes between shippers and drivers regarding price, cargo condition, or service quality.
 • Any indirect, consequential, or incidental loss arising from use of the platform.
 
-Our total aggregate liability to you shall not exceed the subscription fees you paid in the 30 days preceding the claim.`,
+Our total aggregate liability to you shall not exceed the commission fees you paid in the 30 days preceding the claim.`,
   },
   {
     heading: 'Indemnification',
@@ -178,7 +178,7 @@ Location data
 Transaction data
 • Loads posted, bids placed, job history
 • Agreed prices and bid amounts
-• Subscription plan and payment history
+• Wallet balance, deposits, and commission history
 
 Communications
 • In-app chat messages with matched parties
@@ -200,9 +200,9 @@ Usage data
 
 • Create and manage your Loada account.
 • Verify your identity via SMS one-time codes.
-• Match drivers to available loads based on real-time GPS location, truck capacity, and subscription status.
+• Match drivers to available loads based on real-time GPS location, truck capacity, and document approval status.
 • Display your profile (name, rating, truck details) to the matched shipper or driver on an active job.
-• Process subscription payments through Paynow.
+• Process wallet top-up payments through Paynow.
 • Send push notifications and SMS alerts about bids, matches, and job updates.
 • Detect, investigate, and prevent fraud, abuse, and policy violations.
 • Improve the platform through anonymised, aggregated analytics.
@@ -213,7 +213,7 @@ Usage data
     body: `We rely on the following legal bases to process your personal data:
 
 Contract performance (Art. 6(1)(b) GDPR)
-Processing necessary to deliver the Loada service to you — account creation, job matching, subscription management, and payments.
+Processing necessary to deliver the Loada service to you — account creation, job matching, wallet management, and payments.
 
 Legitimate interests (Art. 6(1)(f) GDPR)
 Fraud prevention, platform safety, abuse detection, and anonymised analytics. Our legitimate interests do not override your fundamental rights.

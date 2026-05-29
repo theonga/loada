@@ -32,6 +32,7 @@ export default function BidInboxScreen() {
   const [error, setError] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [radiusExpanded, setRadiusExpanded] = useState(false);
+  const [viewerCount, setViewerCount] = useState(0);
   const [acceptingBidId, setAcceptingBidId] = useState<string | null>(null);
   const [rejectingBidId, setRejectingBidId] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
@@ -59,6 +60,7 @@ export default function BidInboxScreen() {
     (status) => {
       if (status === 'RADIUS_EXPANDED') setRadiusExpanded(true);
     },
+    (count) => setViewerCount(count),
   );
 
   const handleAccept = useCallback(async (bidId: string) => {
@@ -189,10 +191,20 @@ export default function BidInboxScreen() {
         <CountdownBar expiresAt={expiresAt} />
         <View style={styles.countdownFooter}>
           <Text style={styles.countdownLabel}>Bidding closes</Text>
-          <View style={[styles.bidBadge, bids.length > 0 && { backgroundColor: 'rgba(245,166,35,0.12)', borderColor: 'rgba(245,166,35,0.25)' }]}>
-            <Text style={[styles.bidBadgeText, bids.length > 0 && { color: C.accent }]}>
-              {bids.length} {bids.length === 1 ? 'bid' : 'bids'}
-            </Text>
+          <View style={styles.countdownBadges}>
+            {viewerCount > 0 && (
+              <View style={styles.viewerBadge}>
+                <View style={styles.viewerDot} />
+                <Text style={styles.viewerBadgeText}>
+                  {viewerCount} {viewerCount === 1 ? 'viewing' : 'viewing'}
+                </Text>
+              </View>
+            )}
+            <View style={[styles.bidBadge, bids.length > 0 && { backgroundColor: 'rgba(245,166,35,0.12)', borderColor: 'rgba(245,166,35,0.25)' }]}>
+              <Text style={[styles.bidBadgeText, bids.length > 0 && { color: C.accent }]}>
+                {bids.length} {bids.length === 1 ? 'bid' : 'bids'}
+              </Text>
+            </View>
           </View>
         </View>
       </View>
@@ -390,6 +402,30 @@ function getStyles(C: ColorPalette) {
       fontSize: Typography.sizes.chip,
       fontWeight: Typography.weights.semibold,
       color: C.text.secondary,
+      fontVariant: ['tabular-nums'],
+    },
+    countdownBadges: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    viewerBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 8, paddingVertical: 3,
+      borderRadius: Radius.pill,
+      backgroundColor: 'rgba(0,200,83,0.10)',
+      borderWidth: 1, borderColor: 'rgba(0,200,83,0.25)',
+    },
+    viewerDot: {
+      width: 6, height: 6, borderRadius: 3,
+      backgroundColor: C.status.green,
+    },
+    viewerBadgeText: {
+      fontSize: Typography.sizes.chip,
+      fontWeight: Typography.weights.semibold,
+      color: C.status.green,
       fontVariant: ['tabular-nums'],
     },
 

@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(curl -sS -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG1pbklkIjoiZmEwM2M0YmEtZjcyZC00YzVlLThiNWUtYjg2MTI2Nzc5ZDJkIiwidXNlcm5hbWUiOiJhZG1pbiIsInR5cGUiOiJhZG1pbiIsImlhdCI6MTc4MDAzMzk0NywiZXhwIjoxNzgwMDYyNzQ3fQ.OT82cyiEwkxzyPTD8FdMCxv7V4ckLt1ErFXK7O7CpzE' http://localhost:3000/v1/admin/stats)",
-      "Bash(python3 -c 'import json,sys; print\\(json.load\\(sys.stdin\\)[\"data\"][\"stats\"]\\)')"
+      "Bash(python3 -c 'import json,sys; print\\(json.load\\(sys.stdin\\)[\"data\"][\"stats\"]\\)')",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(cat /home/theo/.claude/projects/-home-theo-Theo-Loada/memory/MEMORY.md 2>/dev/null && echo \"---\" && ls /home/theo/.claude/projects/-home-theo-Theo-Loada/memory/ 2>/dev/null)",
+      "Read(//home/theo/.claude/projects/-home-theo-Theo-Loada/memory/**)"
     ]
   }
 }

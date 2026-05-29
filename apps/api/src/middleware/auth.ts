@@ -54,25 +54,3 @@ export async function requireShipper(req: FastifyRequest, reply: FastifyReply): 
   }
 }
 
-export async function requireActiveSubscription(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const user = (req as unknown as Record<string, unknown>)["authUser"] as {
-    driverProfile?: { id: string } | null;
-  } | undefined;
-
-  const driverProfileId = user?.driverProfile?.id;
-  if (!driverProfileId) {
-    await reply.status(403).send({
-      success: false,
-      error: { code: "SUBSCRIPTION_REQUIRED", message: "Active subscription required to access loads" },
-    });
-    return;
-  }
-
-  const sub = await prisma.subscription.findUnique({ where: { driverId: driverProfileId } });
-  if (!sub || !["ACTIVE", "TRIAL"].includes(sub.status)) {
-    await reply.status(403).send({
-      success: false,
-      error: { code: "SUBSCRIPTION_REQUIRED", message: "Active subscription required to access loads" },
-    });
-  }
-}

@@ -29,6 +29,7 @@ import {
   getMyDriverProfile,
   updateProfile,
   updateDriverProfile,
+  switchRole,
 } from "@services";
 import { isAuthError } from "@services/api";
 import { TONNAGE_TIERS, TRUCK_TYPES, TRUCK_TYPE_HAS_TONNAGE, TRUCK_TYPE_LABELS, type TruckType } from "@constants/index";
@@ -39,6 +40,7 @@ type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 export default function DriverProfileScreen() {
   const router = useRouter();
   const { user, logout, updateName, updateEmail } = useAuthStore();
+  const canSwitchRole = user?.role === 'BOTH';
   const [driver, setDriver] = useState<DriverProfile | null>(null);
   const [loadError, setLoadError] = useState("");
 
@@ -137,6 +139,15 @@ export default function DriverProfileScreen() {
     return `Expires ${new Date(isoDate).toLocaleDateString()}`;
   }
 
+  const handleSwitchToShipper = useCallback(async () => {
+    try {
+      await switchRole('shipper');
+      router.replace('/(shipper)');
+    } catch {
+      showError("Couldn't switch to shipper. Try again.");
+    }
+  }, [router]);
+
   const menuItems: { label: string; icon: IoniconName; onPress: () => void }[] =
     [
       {
@@ -149,6 +160,11 @@ export default function DriverProfileScreen() {
         icon: "trending-up-outline",
         onPress: () => router.push("/(driver)/earnings"),
       },
+      ...(canSwitchRole ? [{
+        label: "Switch to Shipper",
+        icon: "swap-horizontal-outline" as IoniconName,
+        onPress: handleSwitchToShipper,
+      }] : []),
       {
         label: "Help & support",
         icon: "help-circle-outline",

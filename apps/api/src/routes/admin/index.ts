@@ -8,6 +8,7 @@ import { getAllConfig, setConfig } from "@/lib/app-config";
 import type { ConfigKey } from "@/lib/app-config";
 import { resolveStoredFiles } from "@/lib/s3";
 import { adminCancelJob, adminBulkCancelJobs } from "@/services/job.service";
+import { getOnlineShipperCount } from "@/lib/socket";
 
 export async function adminRoutes(app: FastifyInstance) {
   // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -76,6 +77,7 @@ export async function adminRoutes(app: FastifyInstance) {
       totalJobs, activeJobs,
       completedJobsToday, pendingDocuments,
       walletFunds, commissionAllTime, commissionThisMonth,
+      onlineDrivers, onlineShippers,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.driverProfile.count(),
@@ -87,6 +89,10 @@ export async function adminRoutes(app: FastifyInstance) {
       prisma.driverWallet.aggregate({ _sum: { balance: true, reservedBalance: true } }),
       prisma.walletTransaction.aggregate({ where: { type: "COMMISSION_DEDUCT" }, _sum: { amount: true } }),
       prisma.walletTransaction.aggregate({ where: { type: "COMMISSION_DEDUCT", createdAt: { gte: monthStart } }, _sum: { amount: true } }),
+      // Drivers track online state in Postgres (toggled by their /me/online endpoint).
+      prisma.driverProfile.count({ where: { isOnline: true } }),
+      // Shippers have no isOnline field — we track them via socket presence in Redis.
+      getOnlineShipperCount().catch(() => 0),
     ]);
 
     return reply.send({
@@ -96,6 +102,8 @@ export async function adminRoutes(app: FastifyInstance) {
           totalUsers,
           totalDrivers,
           totalShippers,
+          onlineDrivers,
+          onlineShippers,
           totalJobs,
           activeJobs,
           completedJobsToday,
@@ -133,7 +141,7 @@ export async function adminRoutes(app: FastifyInstance) {
       prisma.user.findMany({
         where,
         include: {
-          driverProfile: { include: { subscription: true } },
+          driverProfile: { include: { wallet: true } },
           shipperProfile: true,
         },
         orderBy: { createdAt: "desc" },
@@ -190,7 +198,7 @@ export async function adminRoutes(app: FastifyInstance) {
         where,
         include: {
           user: true,
-          subscription: { include: { payments: { orderBy: { createdAt: "desc" }, take: 1 } } },
+          wallet: true,
         },
         orderBy: { user: { createdAt: "desc" } },
         skip: (query.page - 1) * query.limit,
@@ -264,8 +272,12 @@ export async function adminRoutes(app: FastifyInstance) {
         where,
         include: {
           shipper: { include: { user: true } },
-          bids: { where: { status: "ACCEPTED" }, take: 1, include: { driver: { include: { user: true } } } },
+          bids: {
+            include: { driver: { include: { user: true } } },
+            orderBy: { createdAt: "asc" },
+          },
           delivery: true,
+          _count: { select: { bids: true, messages: true } },
         },
         orderBy: { createdAt: "desc" },
         skip: (query.page - 1) * query.limit,
@@ -275,6 +287,31 @@ export async function adminRoutes(app: FastifyInstance) {
     ]);
 
     return reply.send({ success: true, data: { jobs, total, page: query.page, limit: query.limit } });
+  });
+
+  /**
+   * Full job detail for the admin modal — every related row the admin might
+   * need to investigate an in-progress, disputed, or stuck job.
+   */
+  app.get("/jobs/:jobId", { preHandler: [requireAdmin] }, async (req, reply) => {
+    const { jobId } = req.params as { jobId: string };
+    const job = await prisma.job.findUnique({
+      where: { id: jobId },
+      include: {
+        shipper: { include: { user: true } },
+        bids: {
+          orderBy: { createdAt: "desc" },
+          include: { driver: { include: { user: true, wallet: true } } },
+        },
+        delivery: true,
+        messages: { orderBy: { createdAt: "asc" }, take: 50, include: { sender: true } },
+        ratings: { include: { fromUser: true, toUser: true } },
+      },
+    });
+    if (!job) {
+      return reply.status(404).send({ success: false, error: { code: "JOB_NOT_FOUND", message: "Job not found" } });
+    }
+    return reply.send({ success: true, data: { job } });
   });
 
   app.patch("/jobs/:jobId/cancel", { preHandler: [requireAdmin] }, async (req, reply) => {
@@ -601,57 +638,4 @@ export async function adminRoutes(app: FastifyInstance) {
     }
   });
 
-  // ── Subscriptions ─────────────────────────────────────────────────────────────
-
-  app.get("/subscriptions", { preHandler: [requireAdmin] }, async (req, reply) => {
-    const query = z.object({
-      page: z.coerce.number().default(1),
-      limit: z.coerce.number().default(50),
-      status: z.enum(["TRIAL", "ACTIVE", "EXPIRED", "CANCELLED"]).optional(),
-    }).parse(req.query);
-
-    const where = query.status ? { status: query.status } : {};
-
-    const [subscriptions, total] = await Promise.all([
-      prisma.subscription.findMany({
-        where,
-        include: {
-          driver: { include: { user: true } },
-          payments: { orderBy: { createdAt: "desc" }, take: 3 },
-        },
-        orderBy: { updatedAt: "desc" },
-        skip: (query.page - 1) * query.limit,
-        take: query.limit,
-      }),
-      prisma.subscription.count({ where }),
-    ]);
-
-    return reply.send({ success: true, data: { subscriptions, total, page: query.page, limit: query.limit } });
-  });
-
-  app.patch("/subscriptions/:id/override", { preHandler: [requireAdmin] }, async (req, reply) => {
-    try {
-      const { id } = req.params as { id: string };
-      const body = z.object({
-        status: z.enum(["TRIAL", "ACTIVE", "EXPIRED", "CANCELLED"]),
-        currentPeriodEnd: z.string().datetime().optional(),
-      }).parse(req.body);
-
-      const subscription = await prisma.subscription.update({
-        where: { id },
-        data: {
-          status: body.status,
-          ...(body.currentPeriodEnd && { currentPeriodEnd: new Date(body.currentPeriodEnd) }),
-        },
-        include: { driver: { include: { user: true } } },
-      });
-
-      return reply.send({ success: true, data: { subscription } });
-    } catch (err) {
-      if (err instanceof ZodError) {
-        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
-      }
-      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
-    }
-  });
 }

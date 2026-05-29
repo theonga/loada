@@ -13,7 +13,6 @@ import { jobRoutes } from "@/routes/jobs";
 import { bidRoutes } from "@/routes/bids";
 import { deliveryRoutes } from "@/routes/deliveries";
 import { messageRoutes } from "@/routes/messages";
-import { subscriptionRoutes } from "@/routes/subscriptions";
 import { ratingRoutes } from "@/routes/ratings";
 import { driverRoutes } from "@/routes/drivers";
 import { notificationRoutes } from "@/routes/notifications";
@@ -72,7 +71,6 @@ export async function buildApp() {
   await app.register(bidRoutes, { prefix: "/v1/bids" });
   await app.register(deliveryRoutes, { prefix: "/v1/deliveries" });
   await app.register(messageRoutes, { prefix: "/v1/messages" });
-  await app.register(subscriptionRoutes, { prefix: "/v1/subscriptions" });
   await app.register(ratingRoutes, { prefix: "/v1/ratings" });
   await app.register(driverRoutes, { prefix: "/v1/drivers" });
   await app.register(notificationRoutes, { prefix: "/v1/notifications" });

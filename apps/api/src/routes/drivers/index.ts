@@ -42,7 +42,7 @@ export async function driverRoutes(app: FastifyInstance) {
     }
     const driver = await prisma.driverProfile.findUnique({
       where: { id: user.driverProfile.id },
-      include: { subscription: { include: { payments: true } }, user: { select: { id: true, name: true, phone: true, email: true, profilePhotoUrl: true } } },
+      include: { user: { select: { id: true, name: true, phone: true, email: true, profilePhotoUrl: true } } },
     });
     if (!driver) {
       return reply.status(404).send({ success: false, error: { code: "DRIVER_NOT_FOUND", message: "Driver not found" } });
@@ -52,7 +52,6 @@ export async function driverRoutes(app: FastifyInstance) {
       success: true,
       data: {
         driver: withUrls,
-        subscription: driver.subscription,
         documents: {
           licenceUrl: withUrls.licenceUrl,
           registrationUrl: withUrls.registrationUrl,

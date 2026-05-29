@@ -13,6 +13,7 @@ import { ScreenError } from '@components/ui/ScreenError';
 import { DARK_MAP_STYLE } from '@components/ui/MapBg';
 import { getJobById } from '@services';
 import { isAuthError } from '@services/api';
+import { useJobViewerPresence } from '@hooks/useJobViewerPresence';
 import { TONNAGE_LABELS, TRUCK_TYPE_LABELS, PAYMENT_METHOD_LABELS, type TruckType, type PaymentMethod } from '@constants/index';
 import type { Job } from '@/types';
 
@@ -87,6 +88,9 @@ export default function LoadDetailScreen() {
   };
 
   useEffect(() => { load(); }, [jobId]);
+
+  // Tell the shipper "a driver is looking at this load right now".
+  useJobViewerPresence(jobId);
 
   if (loading) {
     return (

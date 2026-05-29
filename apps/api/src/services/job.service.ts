@@ -91,7 +91,6 @@ export async function createJob(shipperId: string, data: CreateJobInput) {
 export async function getAvailableLoads(driverId: string, lat: number, lng: number) {
   const driver = await prisma.driverProfile.findUnique({
     where: { id: driverId },
-    include: { subscription: true },
   });
   if (!driver) throw Object.assign(new Error("Driver not found"), { statusCode: 404, code: "DRIVER_NOT_FOUND" });
 

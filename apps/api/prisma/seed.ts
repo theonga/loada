@@ -5,12 +5,11 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 const CONFIG_SEED: Array<{ key: string; value: string; label: string; group: string }> = [
-  { key: "subscription_price_weekly",         value: "8",    label: "Weekly subscription price (USD)",          group: "pricing" },
-  { key: "subscription_price_monthly",        value: "28",   label: "Monthly subscription price (USD)",         group: "pricing" },
-  { key: "subscription_price_annual",         value: "280",  label: "Annual subscription price (USD)",          group: "pricing" },
-  { key: "trial_period_days",                 value: "7",    label: "Trial period (days)",                      group: "pricing" },
+  { key: "loada_commission_pct",              value: "15",   label: "Loada commission percentage (%)",          group: "pricing" },
+  { key: "min_deposit_usd",                   value: "10",   label: "Minimum wallet deposit (USD)",             group: "pricing" },
   { key: "bid_ttl_seconds",                   value: "300",  label: "Bid TTL (seconds)",                        group: "bidding" },
   { key: "max_active_bids_per_driver",        value: "3",    label: "Max active bids per driver",               group: "bidding" },
+  { key: "max_bid_cancel_per_week",           value: "5",    label: "Max bid cancellations per driver per week (abuse limit)", group: "bidding" },
   { key: "initial_search_radius_km",          value: "25",   label: "Initial driver search radius (km)",        group: "matching" },
   { key: "radius_expansion_interval_seconds", value: "60",   label: "Radius expansion interval (seconds)",      group: "matching" },
   { key: "radius_expansion_increment_km",     value: "15",   label: "Radius expansion increment (km)",          group: "matching" },
@@ -35,12 +34,13 @@ async function main() {
   await prisma.rating.deleteMany();
   await prisma.message.deleteMany();
   await prisma.delivery.deleteMany();
+  await prisma.walletTransaction.deleteMany();
+  await prisma.driverWallet.deleteMany();
   await prisma.bid.deleteMany();
   await prisma.job.deleteMany();
-  await prisma.subscriptionPayment.deleteMany();
-  await prisma.subscription.deleteMany();
   await prisma.driverProfile.deleteMany();
   await prisma.shipperProfile.deleteMany();
+  await prisma.notification.deleteMany();
   await prisma.user.deleteMany();
   await prisma.appConfig.deleteMany();
   await prisma.admin.deleteMany();
@@ -104,12 +104,8 @@ async function main() {
             lastLocationLat: -17.8292 + (Math.random() - 0.5) * 0.2,
             lastLocationLng: 31.0522 + (Math.random() - 0.5) * 0.2,
             lastLocationAt: new Date(),
-            subscription: {
-              create: {
-                plan: "MONTHLY",
-                status: "ACTIVE",
-                currentPeriodEnd: dayjs().add(30, "day").toDate(),
-              },
+            wallet: {
+              create: { balance: 50, reservedBalance: 0 },
             },
           },
         },
@@ -334,7 +330,7 @@ async function main() {
 
   console.log("Seed complete!");
   console.log(`  Shippers: 2 (Tendai Moyo, Rudo Chikwanda)`);
-  console.log(`  Drivers: 8 (all APPROVED, MONTHLY subscription)`);
+  console.log(`  Drivers: 8 (all APPROVED, $50 wallet balance each)`);
   console.log(`  Jobs: 6 (COMPLETED, BIDDING×2, MATCHED, IN_TRANSIT, CANCELLED)`);
   console.log(`  Bids: 4 on the BIDDING job`);
   console.log(`  Messages: 6 in the BIDDING job chat`);

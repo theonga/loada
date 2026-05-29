@@ -12,7 +12,7 @@ import {
 } from '@constants/theme';
 import { Avatar } from '@components/ui/Avatar';
 import { useAuthStore } from '@store/auth.store';
-import { getShipperJobs, updateProfile } from '@services';
+import { getShipperJobs, updateProfile, switchRole } from '@services';
 import { showError, showConfirm } from '@components/ui/AppAlert';
 import { JobStatus } from '@constants/index';
 import type { Job } from '@/types';
@@ -22,6 +22,7 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 export default function ShipperProfileScreen() {
   const router = useRouter();
   const { user, logout, updateName, updateEmail } = useAuthStore();
+  const canSwitchRole = user?.role === 'BOTH';
   const [jobs, setJobs] = useState<Job[]>([]);
 
   const [editing, setEditing] = useState(false);
@@ -67,7 +68,21 @@ export default function ShipperProfileScreen() {
 
   const completedJobs = jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
 
+  const handleSwitchToDriver = useCallback(async () => {
+    try {
+      await switchRole('driver');
+      router.replace('/(driver)');
+    } catch {
+      showError("Couldn't switch to driver. Try again.");
+    }
+  }, [router]);
+
   const menuItems: { label: string; icon: IoniconName; onPress: () => void }[] = [
+    ...(canSwitchRole ? [{
+      label: 'Switch to Driver',
+      icon: 'swap-horizontal-outline' as IoniconName,
+      onPress: handleSwitchToDriver,
+    }] : []),
     { label: 'Help & support', icon: 'help-circle-outline', onPress: () => router.push('/(shared)/help') },
     { label: 'Settings', icon: 'settings-outline', onPress: () => router.push('/(shared)/settings') },
   ];

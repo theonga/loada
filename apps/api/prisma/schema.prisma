@@ -60,7 +60,6 @@ model DriverProfile {
   lastLocationLng      Float?
   lastLocationAt       DateTime?
   user                 User               @relation(fields: [userId], references: [id])
-  subscription         Subscription?
   wallet               DriverWallet?
   bids                 Bid[]
 }
@@ -153,31 +152,6 @@ model Delivery {
   updatedAt           DateTime  @updatedAt
 }
 
-model Subscription {
-  id                String               @id @default(uuid())
-  driverId          String               @unique
-  driver            DriverProfile        @relation(fields: [driverId], references: [id])
-  plan              SubscriptionPlan
-  status            SubscriptionStatus
-  currentPeriodEnd  DateTime
-  paynowReference   String?
-  createdAt         DateTime             @default(now())
-  updatedAt         DateTime             @updatedAt
-  payments          SubscriptionPayment[]
-}
-
-model SubscriptionPayment {
-  id              String        @id @default(uuid())
-  subscriptionId  String
-  subscription    Subscription  @relation(fields: [subscriptionId], references: [id])
-  amount          Decimal       @db.Decimal(10, 2)
-  currency        String        @default("USD")
-  paynowRef       String?
-  status          PaymentStatus
-  paidAt          DateTime?
-  createdAt       DateTime      @default(now())
-}
-
 model Message {
   id          String    @id @default(uuid())
   jobId       String
@@ -242,19 +216,6 @@ enum BidStatus {
   ACCEPTED
   REJECTED
   EXPIRED
-}
-
-enum SubscriptionPlan {
-  WEEKLY
-  MONTHLY
-  ANNUAL
-}
-
-enum SubscriptionStatus {
-  TRIAL
-  ACTIVE
-  EXPIRED
-  CANCELLED
 }
 
 enum PaymentStatus {

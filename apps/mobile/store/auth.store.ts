@@ -9,9 +9,12 @@ const KEYS = {
   role: 'auth:role',
 } as const;
 
+type ActiveRole = 'shipper' | 'driver';
+
 interface AuthStore {
   user: User | null;
-  role: 'shipper' | 'driver' | null;
+  /** Which UI the user is currently viewing. For BOTH users, this can be toggled. */
+  role: ActiveRole | null;
   token: string | null;
   refreshToken: string | null;
   pendingPhone: string | null;
@@ -19,15 +22,17 @@ interface AuthStore {
   setUser: (user: User) => void;
   updateName: (name: string) => void;
   updateEmail: (email: string | null | undefined) => void;
-  setRole: (role: 'shipper' | 'driver') => void;
+  setRole: (role: ActiveRole) => void;
   setToken: (token: string) => void;
   setRefreshToken: (token: string) => void;
   setPendingPhone: (phone: string) => void;
   logout: () => void;
   hydrate: () => Promise<void>;
+  /** Does this account have access to both roles (without re-logging in)? */
+  canSwitchRole: () => boolean;
 }
 
-export const useAuthStore = create<AuthStore>((set) => ({
+export const useAuthStore = create<AuthStore>((set, get) => ({
   user: null,
   role: null,
   token: null,
@@ -91,6 +96,8 @@ export const useAuthStore = create<AuthStore>((set) => ({
       AsyncStorage.removeItem(KEYS.role),
     ]);
   },
+
+  canSwitchRole: () => get().user?.role === 'BOTH',
 
   hydrate: async () => {
     try {
