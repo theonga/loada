@@ -9,11 +9,31 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { EarningsBar } from '@components/ui/EarningsBar';
 import { Skeleton } from '@components/ui/Skeleton';
 import { getJobById, placeBid, getEarningsSummary, getMyDriverProfile, getWalletBalance } from '@services';
+import { handleDriverActiveJobConflict } from '@services/activeJobConflict';
 import { useAuthStore } from '@store/auth.store';
 import { useWalletStore } from '@store/wallet.store';
 import { useJobViewerPresence } from '@hooks/useJobViewerPresence';
 import { showAlert } from '@components/ui/AppAlert';
+import { JobStatus } from '@constants/index';
 import type { Job, EarningsSummary, DriverProfile } from '@/types';
+
+const BIDDABLE_STATUSES: Job['status'][] = [JobStatus.POSTED, JobStatus.BIDDING, JobStatus.RADIUS_EXPANDED];
+
+function unavailableReason(job: Job): { title: string; sub: string; btn: string } | null {
+  if (job.status === JobStatus.CANCELLED) {
+    return { title: 'Load cancelled', sub: 'The shipper cancelled this load. It\'s no longer accepting bids.', btn: 'Load cancelled' };
+  }
+  if (job.status === JobStatus.EXPIRED) {
+    return { title: 'Bidding closed', sub: 'The bidding window for this load has expired.', btn: 'Bidding closed' };
+  }
+  if (!BIDDABLE_STATUSES.includes(job.status)) {
+    return { title: 'Already matched', sub: 'Another driver has been matched to this load.', btn: 'Not available' };
+  }
+  if (job.biddingExpiresAt && new Date(job.biddingExpiresAt) < new Date()) {
+    return { title: 'Bidding closed', sub: 'The bidding window for this load has expired.', btn: 'Bidding closed' };
+  }
+  return null;
+}
 
 export default function PlaceBidScreen() {
   const router = useRouter();
@@ -38,7 +58,8 @@ export default function PlaceBidScreen() {
   const commissionAmount = numPrice > 0 ? parseFloat((numPrice * commissionPct / 100).toFixed(2)) : 0;
   const hasEnoughBalance = balance >= commissionAmount;
   const docsApproved = driverProfile?.documentStatus === 'APPROVED';
-  const canBid = docsApproved && hasEnoughBalance;
+  const unavailable = job ? unavailableReason(job) : null;
+  const canBid = docsApproved && hasEnoughBalance && !unavailable;
 
   useEffect(() => {
     if (!jobId) return;
@@ -100,6 +121,11 @@ export default function PlaceBidScreen() {
       setWallet(balance - commissionAmount, 0, commissionPct);
       router.replace(`/(driver)/bid/pending/${bid.id}?jobId=${job.id}`);
     } catch (err) {
+      const handled = await handleDriverActiveJobConflict(err);
+      if (handled) {
+        setSubmitting(false);
+        return;
+      }
       const apiErr = err as { message?: string; currentBalance?: number; requiredAmount?: number };
       if (apiErr.currentBalance !== undefined) {
         setWallet(apiErr.currentBalance, 0, commissionPct);
@@ -168,8 +194,19 @@ export default function PlaceBidScreen() {
           </View>
         </Pressable>
 
+        {/* Job no longer biddable banner */}
+        {unavailable && (
+          <View style={styles.cancelledBanner}>
+            <Ionicons name="close-circle-outline" size={16} color={C.status.red} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cancelledTitle}>{unavailable.title}</Text>
+              <Text style={styles.insufficientSub}>{unavailable.sub}</Text>
+            </View>
+          </View>
+        )}
+
         {/* Insufficient balance banner */}
-        {numPrice > 0 && !hasEnoughBalance && (
+        {!unavailable && numPrice > 0 && !hasEnoughBalance && (
           <Pressable style={styles.insufficientBanner} onPress={() => router.push('/(driver)/wallet')}>
             <Ionicons name="warning-outline" size={16} color={C.status.amber} />
             <View style={{ flex: 1 }}>
@@ -245,10 +282,18 @@ export default function PlaceBidScreen() {
         <Pressable
           style={[styles.btn, (!numPrice || !canBid) && styles.btnDisabled]}
           onPress={handleBid}
-          disabled={!numPrice || submitting}
+          disabled={!numPrice || submitting || !!unavailable}
         >
           <Text style={styles.btnText}>
-            {submitting ? 'Placing bid…' : !docsApproved ? 'Documents required' : !hasEnoughBalance ? 'Insufficient balance' : `Bid $${numPrice}`}
+            {submitting
+              ? 'Placing bid…'
+              : unavailable
+                ? unavailable.btn
+                : !docsApproved
+                  ? 'Documents required'
+                  : !hasEnoughBalance
+                    ? 'Insufficient balance'
+                    : `Bid $${numPrice}`}
           </Text>
         </Pressable>
       </View>
@@ -296,6 +341,12 @@ function getStyles(C: ColorPalette) {
       backgroundColor: 'rgba(255,179,0,0.08)', borderWidth: 1,
       borderColor: 'rgba(255,179,0,0.25)', borderRadius: Radius.button, padding: Spacing.card,
     },
+    cancelledBanner: {
+      flexDirection: 'row', alignItems: 'center', gap: Spacing.gapSm,
+      backgroundColor: 'rgba(244,67,54,0.08)', borderWidth: 1,
+      borderColor: 'rgba(244,67,54,0.25)', borderRadius: Radius.button, padding: Spacing.card,
+    },
+    cancelledTitle: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.semibold, color: C.status.red },
     insufficientTitle: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.semibold, color: C.status.amber },
     insufficientSub: { fontSize: Typography.sizes.chip, color: C.text.secondary, marginTop: 2, fontVariant: ['tabular-nums'] },
     priceInputArea: { gap: 8 },

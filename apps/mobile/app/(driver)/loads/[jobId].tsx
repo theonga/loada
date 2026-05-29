@@ -14,8 +14,18 @@ import { DARK_MAP_STYLE } from '@components/ui/MapBg';
 import { getJobById } from '@services';
 import { isAuthError } from '@services/api';
 import { useJobViewerPresence } from '@hooks/useJobViewerPresence';
-import { TONNAGE_LABELS, TRUCK_TYPE_LABELS, PAYMENT_METHOD_LABELS, type TruckType, type PaymentMethod } from '@constants/index';
+import { TONNAGE_LABELS, TRUCK_TYPE_LABELS, PAYMENT_METHOD_LABELS, JobStatus, type TruckType, type PaymentMethod } from '@constants/index';
 import type { Job } from '@/types';
+
+const BIDDABLE_STATUSES: Job['status'][] = [JobStatus.POSTED, JobStatus.BIDDING, JobStatus.RADIUS_EXPANDED];
+
+function loadUnavailableLabel(job: Job): string | null {
+  if (job.status === JobStatus.CANCELLED) return 'Load cancelled';
+  if (job.status === JobStatus.EXPIRED) return 'Bidding closed';
+  if (!BIDDABLE_STATUSES.includes(job.status)) return 'Not available';
+  if (job.biddingExpiresAt && new Date(job.biddingExpiresAt) < new Date()) return 'Bidding closed';
+  return null;
+}
 
 function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
   const result: { latitude: number; longitude: number }[] = [];
@@ -268,12 +278,18 @@ export default function LoadDetailScreen() {
 
         </ScrollView>
         <View style={styles.sheetFooter}>
-          <Pressable
-            style={styles.btn}
-            onPress={() => router.push(`/(driver)/bid/${job.id}`)}
-          >
-            <Text style={styles.btnText}>Place a bid</Text>
-          </Pressable>
+          {(() => {
+            const blockedLabel = loadUnavailableLabel(job);
+            return (
+              <Pressable
+                style={[styles.btn, blockedLabel ? { opacity: 0.5 } : null]}
+                onPress={() => router.push(`/(driver)/bid/${job.id}`)}
+                disabled={!!blockedLabel}
+              >
+                <Text style={styles.btnText}>{blockedLabel ?? 'Place a bid'}</Text>
+              </Pressable>
+            );
+          })()}
         </View>
       </View>
     </View>

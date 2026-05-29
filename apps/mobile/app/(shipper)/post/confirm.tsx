@@ -11,6 +11,7 @@ import { useDraftJobStore } from '@store/draftJob.store';
 import { PAYMENT_METHOD_LABELS, TRUCK_TYPE_LABELS, type PaymentMethod, type TruckType } from '@constants/index';
 import { useJobStore } from '@store/job.store';
 import { postJob } from '@services';
+import { handleShipperActiveJobConflict } from '@services/activeJobConflict';
 
 export default function PostConfirmScreen() {
   const router = useRouter();
@@ -47,7 +48,10 @@ export default function PostConfirmScreen() {
       reset();
       router.replace(`/(shipper)/bids/${job.id}`);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to post load. Please try again.');
+      const handled = await handleShipperActiveJobConflict(e);
+      if (!handled) {
+        setError(e instanceof Error ? e.message : 'Failed to post load. Please try again.');
+      }
       setLoading(false);
     }
   };

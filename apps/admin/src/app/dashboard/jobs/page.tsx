@@ -17,6 +17,15 @@ const JOB_STATUSES = [
   "DELIVERED", "COMPLETED", "CANCELLED", "DISPUTED",
 ];
 
+// All statuses an admin can target from the detail modal. DRAFT is excluded
+// (never a valid admin destination); terminal states are reachable but the
+// dropdown is disabled when the job is already terminal.
+const ADMIN_STATUS_OPTIONS = [
+  "POSTED", "BIDDING", "RADIUS_EXPANDED", "MATCHED",
+  "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT",
+  "DELIVERED", "COMPLETED", "CANCELLED", "DISPUTED", "EXPIRED",
+];
+
 const LIMIT = 25;
 
 export default function JobsPage() {
@@ -342,7 +351,17 @@ export default function JobsPage() {
             Loading job…
           </div>
         ) : (
-          <JobDetailView job={detail} />
+          <JobDetailView
+            job={detail}
+            onStatusChanged={async () => {
+              if (detailId) {
+                const { job } = await api.getJob(detailId);
+                setDetail(job);
+                setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: job.status } : j)));
+              }
+            }}
+            onError={(msg) => setError(msg)}
+          />
         )}
         <div className="actions">
           <button className="btn ghost" onClick={closeDetail}>Close</button>
@@ -389,9 +408,39 @@ export default function JobsPage() {
 
 // ── Job detail view ─────────────────────────────────────────────────────────────
 
-function JobDetailView({ job }: { job: JobDetail }) {
+function JobDetailView({
+  job,
+  onStatusChanged,
+  onError,
+}: {
+  job: JobDetail;
+  onStatusChanged?: () => Promise<void> | void;
+  onError?: (msg: string) => void;
+}) {
   const fmtDate = (iso: string | null | undefined) =>
     iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+
+  const [targetStatus, setTargetStatus] = useState<string>(job.status);
+  const [statusReason, setStatusReason] = useState("");
+  const [statusSaving, setStatusSaving] = useState(false);
+  const isTerminal = job.status === "COMPLETED" || job.status === "CANCELLED" || job.status === "EXPIRED";
+  const dirty = targetStatus !== job.status;
+  const cancelling = targetStatus === "CANCELLED";
+  const canSave = dirty && !statusSaving && (!cancelling || statusReason.trim().length > 0);
+
+  async function applyStatus() {
+    if (!canSave) return;
+    setStatusSaving(true);
+    try {
+      await api.setJobStatus(job.id, targetStatus, statusReason.trim() || undefined);
+      setStatusReason("");
+      await onStatusChanged?.();
+    } catch (e) {
+      onError?.((e as Error).message);
+    } finally {
+      setStatusSaving(false);
+    }
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -405,6 +454,48 @@ function JobDetailView({ job }: { job: JobDetail }) {
         </div>
         <Badge tone={statusTone(job.status)}>{job.status.replace(/_/g, " ")}</Badge>
       </div>
+
+      {/* Admin status override */}
+      <DetailBlock label="Change status">
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <Select
+            value={targetStatus}
+            onChange={(v) => setTargetStatus(v)}
+            disabled={isTerminal || statusSaving}
+            style={{ width: 220 }}
+          >
+            {ADMIN_STATUS_OPTIONS.map((s) => (
+              <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+            ))}
+          </Select>
+          {cancelling && (
+            <input
+              className="input"
+              placeholder="Cancellation reason (required)"
+              value={statusReason}
+              onChange={(e) => setStatusReason(e.target.value)}
+              style={{ flex: 1, minWidth: 200 }}
+            />
+          )}
+          <button
+            className="btn primary sm"
+            disabled={!canSave}
+            onClick={applyStatus}
+          >
+            {statusSaving ? "Saving…" : "Apply"}
+          </button>
+        </div>
+        {isTerminal && (
+          <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 6 }}>
+            This job is already in a terminal state — status cannot be changed.
+          </div>
+        )}
+        {!isTerminal && (
+          <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 6 }}>
+            Direct overrides do not run commission settlement. Use Cancel for refunds; mark DELIVERED only after manual reconciliation.
+          </div>
+        )}
+      </DetailBlock>
 
       {/* Key facts grid */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12 }}>

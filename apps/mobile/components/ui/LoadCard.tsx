@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColors, ColorPalette, Radius, Spacing, Typography, Components } from '@constants/theme';
 import type { Job } from '@/types';
 import { Chip } from './Chip';
+import { StatusBadge } from './StatusBadge';
 import { TONNAGE_LABELS, PAYMENT_METHOD_LABELS, TRUCK_TYPE_LABELS, JobStatus, type PaymentMethod, type TruckType } from '@constants/index';
 
 const BIDDING_STATUSES: string[] = [JobStatus.POSTED, JobStatus.BIDDING, JobStatus.RADIUS_EXPANDED];
@@ -46,12 +47,16 @@ export function LoadCard({ job, onPress, myBidPrice }: LoadCardProps) {
   const styles = useMemo(() => getStyles(C), [C]);
   const expired = isJobExpired(job);
   const isCompetitive = !expired && job.bidCount >= 2;
+  const displayStatus: JobStatus = expired ? JobStatus.EXPIRED : (job.status as JobStatus);
 
   return (
     <Pressable
       style={[styles.card, expired && { borderColor: 'rgba(244,67,54,0.30)', opacity: 0.75 }]}
       onPress={onPress}
     >
+      <View style={styles.statusRow}>
+        <StatusBadge status={displayStatus} />
+      </View>
       <View style={styles.topRow}>
         <View style={styles.routeCol}>
           <View style={styles.routeStop}>
@@ -77,7 +82,6 @@ export function LoadCard({ job, onPress, myBidPrice }: LoadCardProps) {
       </View>
 
       <View style={styles.chips}>
-        {expired && <Chip variant="red">Expired</Chip>}
         <Chip variant={expired ? 'default' : 'amber'}>{TONNAGE_LABELS[job.requiredTonnes] ?? `${job.requiredTonnes}t`}</Chip>
         {job.requiredTruckType && (
           <Chip variant="default">
@@ -126,6 +130,10 @@ function getStyles(C: ColorPalette) {
       padding: Spacing.cardSm,
       gap: Spacing.gapSm,
       minHeight: Components.touchMin,
+    },
+    statusRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
     },
     topRow: {
       flexDirection: 'row',

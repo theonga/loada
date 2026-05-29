@@ -130,8 +130,10 @@ then update the affected service code. Never write raw SQL migrations by hand.
 
 ### Tonnage tiers
 
-Stored as integers. Valid values: `1, 2, 5, 10, 20, 30`.
+Stored as `Float` (`double precision` in Postgres) so the half-tonne tier survives the round-trip.
+Valid values: `1, 1.5, 2, 5, 10, 20, 30`.
 Use the `TONNAGE_TIERS` constant from `packages/constants` — never hardcode these values in app code.
+Do not change `requiredTonnes` / `capacityTonnes` back to `Int` — it will silently truncate `1.5` to `1` and break the smallest tier.
 
 ### Job statuses
 
@@ -174,7 +176,7 @@ model ShipperProfile {
 model DriverProfile {
   id                   String             @id @default(uuid())
   userId               String             @unique
-  capacityTonnes       Int                // 1 | 2 | 5 | 10 | 20 | 30
+  capacityTonnes       Float              // 1 | 1.5 | 2 | 5 | 10 | 20 | 30
   truckRegistration    String
   truckMake            String
   truckModel           String
@@ -205,7 +207,7 @@ model Job {
   destLat             Float
   destLng             Float
   cargoDescription    String
-  requiredTonnes      Int             // 1 | 2 | 5 | 10 | 20 | 30
+  requiredTonnes      Float           // 1 | 1.5 | 2 | 5 | 10 | 20 | 30
   specialRequirements String[]        // ["FRAGILE","REFRIGERATED","OVERSIZED","HAZARDOUS"]
   askingPrice         Decimal         @db.Decimal(10, 2)
   currency            String          @default("USD")

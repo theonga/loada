@@ -355,6 +355,69 @@ export async function adminBulkCancelJobs(
   return { cancelled, skipped };
 }
 
+/**
+ * Admin direct status override. Use sparingly — this is the escape hatch for
+ * stuck or mis-tracked jobs, not the normal lifecycle.
+ *
+ * - CANCELLED is routed through adminCancelJob so reserved commission is
+ *   released and bids are rejected properly. The caller must supply a reason.
+ * - All other targets are written directly with no side-effects (no commission
+ *   deduction, no delivery row mutation). Commission settlement on forced
+ *   DELIVERED/COMPLETED must be done separately if desired.
+ * - DRAFT is rejected — never a valid admin destination.
+ */
+export async function adminSetJobStatus(
+  jobId: string,
+  newStatus: JobStatus,
+  adminUsername: string,
+  reason?: string,
+): Promise<void> {
+  if (newStatus === "DRAFT") {
+    throw Object.assign(new Error("Cannot move a job back to DRAFT"), { statusCode: 400, code: "INVALID_TARGET_STATUS" });
+  }
+
+  if (newStatus === "CANCELLED") {
+    const why = (reason ?? "").trim();
+    if (!why) {
+      throw Object.assign(new Error("Reason is required when cancelling"), { statusCode: 400, code: "REASON_REQUIRED" });
+    }
+    await adminCancelJob(jobId, adminUsername, why);
+    return;
+  }
+
+  const job = await prisma.job.findUnique({ where: { id: jobId } });
+  if (!job) throw Object.assign(new Error("Job not found"), { statusCode: 404, code: "JOB_NOT_FOUND" });
+
+  if (job.status === newStatus) return;
+
+  await prisma.job.update({
+    where: { id: jobId },
+    data: { status: newStatus },
+  });
+
+  console.warn("[adminSetJobStatus] admin override", {
+    jobId,
+    from: job.status,
+    to: newStatus,
+    admin: adminUsername,
+    reason: reason ?? null,
+  });
+
+  try {
+    const { jobsNs } = getSocketServer();
+    jobsNs.to(`job:${jobId}`).emit("job:status_changed", { jobId, status: newStatus });
+  } catch {
+    // socket may not be up in some test paths
+  }
+
+  notifyShipper(
+    job.shipperId,
+    "Job status updated",
+    `An admin changed your job status to ${newStatus.replace(/_/g, " ").toLowerCase()}.`,
+    { jobId },
+  ).catch(() => {});
+}
+
 // Keep the active-status constant export-friendly for routes that need it.
 void ACTIVE_OR_BIDDING;
 
@@ -365,7 +428,10 @@ export async function getShipperJobs(shipperId: string, status?: string) {
       ...(status ? { status: status as JobStatus } : {}),
     },
     orderBy: { createdAt: "desc" },
-    include: { bids: true, delivery: true },
+    include: {
+      bids: { include: { driver: { include: { user: true } } } },
+      delivery: true,
+    },
   });
 }
 

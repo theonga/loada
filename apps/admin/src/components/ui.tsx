@@ -206,17 +206,20 @@ export function Select({
   onChange,
   children,
   style,
+  disabled,
 }: {
   value: string;
   onChange: (v: string) => void;
   children: ReactNode;
   style?: React.CSSProperties;
+  disabled?: boolean;
 }) {
   return (
     <select
       className="select"
       style={style}
       value={value}
+      disabled={disabled}
       onChange={(e) => onChange(e.target.value)}
     >
       {children}

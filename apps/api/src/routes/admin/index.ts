@@ -7,7 +7,8 @@ import { requireAdmin, getAdmin } from "@/middleware/admin-auth";
 import { getAllConfig, setConfig } from "@/lib/app-config";
 import type { ConfigKey } from "@/lib/app-config";
 import { resolveStoredFiles } from "@/lib/s3";
-import { adminCancelJob, adminBulkCancelJobs } from "@/services/job.service";
+import { adminCancelJob, adminBulkCancelJobs, adminSetJobStatus } from "@/services/job.service";
+import type { JobStatus } from "@prisma/client";
 import { getOnlineShipperCount } from "@/lib/socket";
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -312,6 +313,32 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.status(404).send({ success: false, error: { code: "JOB_NOT_FOUND", message: "Job not found" } });
     }
     return reply.send({ success: true, data: { job } });
+  });
+
+  app.patch("/jobs/:jobId/status", { preHandler: [requireAdmin] }, async (req, reply) => {
+    try {
+      const { jobId } = req.params as { jobId: string };
+      const { status, reason } = z.object({
+        status: z.enum([
+          "POSTED", "BIDDING", "RADIUS_EXPANDED", "MATCHED",
+          "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT",
+          "DELIVERED", "COMPLETED", "CANCELLED", "DISPUTED", "EXPIRED",
+        ]),
+        reason: z.string().optional(),
+      }).parse(req.body);
+      const admin = getAdmin(req);
+
+      await adminSetJobStatus(jobId, status as JobStatus, admin.username, reason);
+
+      const updated = await prisma.job.findUnique({ where: { id: jobId } });
+      return reply.send({ success: true, data: { job: updated } });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
+      }
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
+    }
   });
 
   app.patch("/jobs/:jobId/cancel", { preHandler: [requireAdmin] }, async (req, reply) => {

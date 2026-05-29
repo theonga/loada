@@ -91,6 +91,12 @@ export const api = {
       body: JSON.stringify({ reason }),
     }),
 
+  setJobStatus: (jobId: string, status: string, reason?: string) =>
+    request<{ job: JobRecord }>(`/jobs/${jobId}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status, reason }),
+    }),
+
   getWallets: (params?: WalletQuery) =>
     request<PaginatedWallets>(`/wallets?${new URLSearchParams(params as Record<string, string>)}`),
 
