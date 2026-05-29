@@ -280,16 +280,19 @@ model WalletTransaction {
 }
 
 model Message {
-  id          String    @id @default(uuid())
-  jobId       String
-  senderId    String
-  content     String?
-  mediaUrl    String?
-  mediaType   String?   // "image" | "voice"
-  isRead      Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  job         Job       @relation(fields: [jobId], references: [id])
-  sender      User      @relation("SentMessages", fields: [senderId], references: [id])
+  id            String    @id @default(uuid())
+  jobId         String
+  senderId      String
+  content       String?
+  mediaUrl      String?
+  mediaType     String?   // "image" | "voice"
+  isRead        Boolean   @default(false)
+  flaggedReason String?   // comma-separated pattern names from chat moderation; null = clean
+  createdAt     DateTime  @default(now())
+  job           Job       @relation(fields: [jobId], references: [id])
+  sender        User      @relation("SentMessages", fields: [senderId], references: [id])
+
+  @@index([flaggedReason])
 }
 
 model Rating {
@@ -603,14 +606,13 @@ All Socket.IO events are typed. Import from `packages/types/socket.ts`.
 
 Queue names are constants — import from `packages/constants/queues.ts`.
 
-| Queue                  | Trigger           | Action                                                                    |
-| ---------------------- | ----------------- | ------------------------------------------------------------------------- |
-| `bid-expiry`           | Job posted        | After TTL (default 5 min), close bidding, notify shipper if no match      |
-| `radius-expansion`     | Job posted        | After 60s with < 3 bids, expand search radius by 15km, notify new drivers |
-| `notification`         | Any event         | Send FCM push and/or BulkIT SMS                                           |
-| `subscription-renewal` | Daily cron        | Check subscriptions expiring in 24h, charge Paynow, update status         |
-| `subscription-expiry`  | Daily cron        | Suspend drivers with expired subscriptions, notify them                   |
-| `paynow-poll`          | Payment initiated | Poll Paynow for payment status every 10s for up to 5 min                  |
+| Queue              | Trigger           | Action                                                                                   |
+| ------------------ | ----------------- | ---------------------------------------------------------------------------------------- |
+| `bid-expiry`       | Job posted        | After TTL (default 5 min), close bidding, notify shipper if no match                     |
+| `radius-expansion` | Job posted        | After 60s with < 3 bids, expand search radius by 15km, notify new drivers                |
+| `notification`     | Any event         | Send FCM push and/or BulkIT SMS                                                          |
+| `paynow-poll`      | Wallet top-up     | Poll Paynow for payment status every 10s for up to 5 min, on `PAID` credit driver wallet |
+| `auto-settle`      | Hourly cron       | IN_TRANSIT > `auto_settle_in_transit_days` → DELIVERED + settle commission; DELIVERED > `auto_complete_delivered_hours` → COMPLETED. Closes the "driver ghosts the trip to avoid commission" hole and tidies stuck dashboards |
 
 ---
 
@@ -620,8 +622,8 @@ When a job is posted:
 
 1. Query Redis `GEORADIUS` for online drivers within `searchRadiusKm` (default 25km)
 2. Filter by `capacityTonnes >= job.requiredTonnes`
-3. Filter by `subscriptionStatus === ACTIVE`
-4. Filter by `documentStatus === APPROVED`
+3. Filter by `documentStatus === APPROVED`
+4. Filter by sufficient wallet balance to cover the commission reservation (enforced at `placeBid` time via `reserveCommission`, not at search time)
 5. Send FCM push to all qualifying drivers via `notification` queue
 6. Schedule `bid-expiry` job with TTL
 7. Schedule `radius-expansion` job for 60 seconds
@@ -942,36 +944,101 @@ component that wraps all text in the app.
 
 - Structured JSON logs everywhere — use Fastify's built-in Pino logger
 - Log levels: `error` for exceptions, `warn` for recoverable issues, `info` for key business events, `debug` for development only
-- Always log: job created, bid placed, match confirmed, delivery completed, subscription renewed, subscription expired
+- Always log: job created, bid placed, match confirmed, delivery completed, wallet topped up, commission deducted, commission released, auto-settle sweep result, GPS gate rejection (`GPS_TOO_FAR` / `GPS_UNAVAILABLE`), chat message flagged
 - Never log: phone numbers, JWT tokens, payment credentials, OTP codes
 
 ---
 
 ## Key business rules — enforce in service layer, not route handlers
 
-1. A driver cannot bid on a job if their subscription is not `ACTIVE`
-2. A driver cannot bid on a job if their documents are not `APPROVED`
-3. A driver cannot bid on a job if their registered `capacityTonnes` is less than `job.requiredTonnes`
-4. A driver cannot have more than 3 active bids simultaneously
-5. A shipper cannot post a new job if they have a job in `MATCHED` through `IN_TRANSIT` status — one active job at a time per shipper (MVP)
-6. Bids cannot be placed after `job.biddingExpiresAt`
-7. A match cannot be confirmed on a cancelled or expired job
-8. Proof of delivery photo is required before a job can move to `DELIVERED` status
-9. Both parties must rate each other — ratings are prompted but not enforced (optional)
-10. Subscription fee deduction is logged in `SubscriptionPayment` regardless of success or failure — failed payments are retried once after 24 hours before suspension
+1. A driver cannot bid on a job if their documents are not `APPROVED`
+2. A driver cannot bid on a job if their registered `capacityTonnes` is less than `job.requiredTonnes`
+3. A driver cannot bid on a job if `wallet.balance < commission_amount` (commission = `loada_commission_pct × offeredPrice`). The bid endpoint calls `reserveCommission` which moves the amount from `balance` to `reservedBalance` inside the same transaction as the bid create.
+4. A driver cannot have more than `max_active_bids_per_driver` (default 3) active bids simultaneously.
+5. A driver cannot bid on a job they posted themselves (`bid.driver.userId === job.shipper.userId` → `SELF_TRADE_FORBIDDEN`). Closes the self-trade hole for BOTH-role users.
+6. A shipper cannot post a new job if they have a job in `MATCHED` through `IN_TRANSIT` status — one active job at a time per shipper (MVP).
+7. Bids cannot be placed after `job.biddingExpiresAt`.
+8. A match cannot be confirmed on a cancelled or expired job.
+9. **GPS proximity gate (anti-fraud)**: `confirmPickup` requires the driver's `DriverProfile.lastLocation*` to be within `delivery_gps_tolerance_km` of `job.origin*`, with a fix less than 30 minutes old. Same applies to `confirmDelivery` against `job.dest*`. Server reads location from `DriverProfile`, **never** trusts client-supplied lat/lng in the request body.
+10. Proof of delivery photo is required before a job can move to `DELIVERED` status.
+11. Both parties' ratings are prompted but not enforced. `DELIVERED → COMPLETED` fires automatically when both ratings arrive **or** when the `auto-settle` worker sees a `DELIVERED` job older than `auto_complete_delivered_hours`.
+12. **Shipper cancellation is locked once `status >= PICKUP_ARRIVED`** — request returns `POST_PICKUP_NO_SHIPPER_CANCEL`. Only admin can force-cancel post-pickup, and the admin cancel path **does not refund** the accepted bid's commission (it deducts as if the trip completed). Closes the shipper+driver collusion path where they "cancel" a DELIVERED job to claw the commission back.
+13. **Commission deduction is resilient**: `confirmDelivery` recomputes commission from `loada_commission_pct × offeredPrice` when the bid's stored `commissionAmount` is null (legacy bids, future admin-injected bids) instead of silently skipping the deduction.
+14. **Auto-settle for ghost trips**: an `IN_TRANSIT` job idle for more than `auto_settle_in_transit_days` (default 7) is automatically advanced to `DELIVERED` by the hourly `auto-settle` worker, and commission is deducted from the driver's wallet. Closes the "driver never confirms delivery to avoid commission" hole.
+
+---
+
+## Trust & Safety — commission integrity
+
+The wallet model only works if drivers can't bypass the commission. The following
+mechanisms work together to close the obvious holes. Each one is documented in
+its own section so future contributors can reason about whether a new feature
+needs to extend one of them.
+
+### Server-side GPS proximity gate
+
+- `confirmPickup` and `confirmDelivery` call `assertNearWaypoint` in `delivery.service.ts`
+- Reads the driver's `lastLocationLat/Lng` from `DriverProfile` — server-side, populated by the live `/location` socket heartbeat. **Never trust client-supplied coordinates in the request body.**
+- Rejects with `GPS_UNAVAILABLE` if the fix is missing or older than 30 minutes (a stale fix is itself a red flag)
+- Rejects with `GPS_TOO_FAR` if outside `delivery_gps_tolerance_km` of the waypoint
+- Closes "tap-through-every-screen-from-your-couch" fake trips and forces real device presence at the waypoint
+
+### Commission-amount fallback
+
+- `confirmDelivery` recomputes commission from `loada_commission_pct × offeredPrice` when the bid's stored `commissionAmount` is null (legacy, manually-created, migration glitch) instead of silently skipping
+- `deductCommission` is resilient against reservation/charge mismatch: pulls from `reservedBalance` first, then `balance` for any shortfall, annotating the transaction note. This prevents `commission_pct` config changes mid-trip from causing negative reservations.
+
+### Locked shipper cancellation post-pickup
+
+- `cancelJob` (shipper-initiated) rejects with `POST_PICKUP_NO_SHIPPER_CANCEL` once status is `PICKUP_ARRIVED` or later — the shipper must go through the dispute / admin flow
+- `performJobCancellation` (used by admin force-cancel) refunds commission for **pre-pickup** cancels but **deducts** the accepted bid's commission for **post-pickup** cancels. Loada keeps the cut on cancelled-in-flight trips because the driver did the work.
+- Losing bids' commissions are always refunded regardless of the cancellation stage.
+
+### Self-trade prevention
+
+- `placeBid` throws `SELF_TRADE_FORBIDDEN` when `driver.user.id === job.shipper.user.id`
+- Without this, a BOTH-role user could post a job, accept their own bid, and use the platform to launder wallet funds out as "earnings" while inflating their rating count
+
+### Auto-settle worker (anti-ghost)
+
+- BullMQ `auto-settle` queue, runs on a `0 * * * *` (hourly) repeat schedule
+- Pass 1: `IN_TRANSIT` jobs older than `auto_settle_in_transit_days` → transition to `DELIVERED`, run `deductCommission`, notify both parties
+- Pass 2: `DELIVERED` jobs older than `auto_complete_delivered_hours` → transition to `COMPLETED` (regardless of ratings)
+- Loada cannot lose commission revenue from a driver who simply never taps "Mark delivered"
+
+### Chat moderation flag
+
+- Every outgoing message is scanned by `lib/chat-moderation.ts` against three pattern groups:
+  - **Phone numbers**: Zimbabwe local (`0XX-XXX-XXXX`), international (`+263...`), and any 8+ contiguous digit run
+  - **Contact handles**: `whatsapp`, `wa.me`, `t.me/`, `telegram`, email addresses
+  - **Collusion phrases**: `off-platform`, `outside the app`, `skip the fee`, `cancel and re-post directly`, `cash only`, etc.
+- Hits are stored in `Message.flaggedReason` as a comma-separated list of pattern names. Messages are **never blocked** — false positives exist (e.g. legitimate phone exchange for delivery contact). Admin reviews via `/dashboard/audit`.
+
+### Low-bid alert
+
+- `GET /v1/admin/audit/low-bids` flags accepted bids priced below `low_bid_alert_pct` (default 60%) of the per-km × tonnage market estimate
+- Catches the InDrive-style tax dodge: bid $30 in-app, settle $80 cash with shipper, Loada earns commission on $30 only
+- Pure signal — admin decides whether to suspend, dispute, or ignore
+
+### Admin audit page
+
+- `/dashboard/audit` exposes both the flagged-messages feed and the low-bid jobs list
+- Visit after every commission-revenue anomaly to triage potential collusion
 
 ---
 
 ## Paynow integration notes
 
-Paynow uses a polling model — not webhooks. When a payment is initiated:
+Paynow handles **wallet top-ups only** — there are no subscription payments. Flow:
 
-1. API calls Paynow to create a payment request
-2. Paynow returns a `pollUrl` and redirects user to payment page
-3. API schedules a `paynow-poll` BullMQ job that hits `pollUrl` every 10 seconds
-4. On `PAID` status: update subscription, cancel polling job, notify driver
-5. On timeout (5 minutes): mark payment as failed, notify driver to retry
-6. Never block the API response waiting for Paynow — always async via the queue
+1. Driver hits `POST /wallet/deposit` with `{ amount, method, phone? }`
+2. API calls Paynow to create a payment request
+3. Paynow returns a `pollUrl` and redirects driver to payment page (browser deep-link for VMC; STK push for EcoCash/OneMoney)
+4. API schedules a `paynow-poll` BullMQ job that hits `pollUrl` every `paynow_poll_interval_seconds`
+5. On `PAID` status: `confirmDeposit` credits the driver's `DriverWallet.balance`, cancels polling job, notifies driver, emits `wallet:balance_updated` over the `/jobs` socket
+6. On timeout (`paynow_poll_timeout_seconds`): mark the `WalletTransaction` as `FAILED`, notify driver to retry
+7. The Paynow result webhook at `POST /v1/payments/result` is the belt-and-suspenders path — it confirms wallet deposits independently of the poll
+8. Never block the API response waiting for Paynow — always async via the queue
 
 EcoCash flow: Paynow sends an STK push to the driver's phone. Driver confirms on their phone. Poll detects the confirmation. This is the primary payment flow in Zimbabwe.
 
@@ -994,10 +1061,9 @@ Google Maps is billed per call. Minimize usage:
 SMS is the fallback when FCM push fails (app in background on low-end Android,
 or user has notifications disabled).
 
-Send SMS for: OTP, match confirmed, delivery completed, subscription expiring in 24h,
-subscription expired.
+Send SMS for: OTP, match confirmed, delivery completed.
 Do not send SMS for: bid received (too frequent, use push only), location updates,
-chat messages.
+chat messages, wallet top-up confirmations (push only — driver is in the app).
 
 BulkIT is integrated via a custom webhook. The webhook configuration (URL, auth header,
 payload format) is handled separately — do not hardcode it in application code.
@@ -1026,12 +1092,13 @@ A Next.js 14 web application for platform administrators. Runs on port 3001 in d
 | Route | Purpose |
 |---|---|
 | `/login` | Username + password login form |
-| `/dashboard` | Overview stats (users, drivers, jobs, revenue, pending docs) |
-| `/dashboard/config` | Edit all 22 AppConfig keys — grouped by pricing / bidding / matching / auth / payments / market |
-| `/dashboard/users` | Paginated user list with suspend / unsuspend actions |
-| `/dashboard/drivers` | Driver list with document approve / reject, subscription status |
-| `/dashboard/jobs` | Job list with force-cancel action |
-| `/dashboard/subscriptions` | Subscription list with status override and period-end override |
+| `/dashboard` | Overview KPIs (totals, online drivers/shippers, active jobs, wallet funds held, commission this month, recent activity charts) |
+| `/dashboard/config` | Edit all AppConfig keys — grouped by pricing / bidding / matching / trust / auth / payments / market |
+| `/dashboard/users` | Paginated user list with suspend / unsuspend, bulk actions |
+| `/dashboard/drivers` | Driver list with document approve / reject, wallet balance, online status |
+| `/dashboard/jobs` | Full job list with bid count, cargo, status; click View for a detailed modal (bids, delivery, ratings, messages); force-cancel and bulk-cancel |
+| `/dashboard/wallets` | Driver wallet list with balance / reserved / transactions; manual adjust |
+| `/dashboard/audit` | Trust & Safety feed: flagged chat messages + low-bid jobs vs market reference (anti-fraud signals) |
 
 ### Config system
 
@@ -1041,8 +1108,19 @@ All operational constants live in the `AppConfig` database table (key-value). Th
 - Written via the admin panel or `setConfig(key, value, adminUsername)`
 - Seeded with defaults on `npm run db:seed`
 
-The 22 configurable keys are defined in `apps/api/src/lib/app-config.ts` as `ConfigKey`.
-Never hardcode these values in service files — always read from config.
+All configurable keys are defined in `apps/api/src/lib/app-config.ts` as the `ConfigKey`
+union type. Grouped on the admin Configuration page by `pricing`, `bidding`, `matching`,
+`trust`, `auth`, `payments`, `market`. Never hardcode these values in service files —
+always read from config.
+
+**Trust & Safety keys** (group `trust` — added 2026-05-29 alongside the anti-fraud work):
+
+| Key                              | Default | Effect                                                                                |
+| -------------------------------- | ------- | ------------------------------------------------------------------------------------- |
+| `delivery_gps_tolerance_km`      | `0.5`   | Max distance from pickup/delivery point at which `confirmPickup`/`confirmDelivery` will accept the transition |
+| `auto_settle_in_transit_days`    | `7`     | Days of inactivity in `IN_TRANSIT` before the auto-settle worker forces `DELIVERED` and deducts commission |
+| `auto_complete_delivered_hours`  | `72`    | Hours after `DELIVERED` before the auto-settle worker forces `COMPLETED` regardless of ratings |
+| `low_bid_alert_pct`              | `60`    | Accepted bids below this % of the per-km × tonnage market estimate are surfaced on `/dashboard/audit` |
 
 ### Running locally
 

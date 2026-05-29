@@ -6,7 +6,7 @@ import {
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   useColors, ColorPalette, Typography, Spacing, Radius, Components,
 } from '@constants/theme';
@@ -21,6 +21,7 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 export default function ShipperProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, logout, updateName, updateEmail } = useAuthStore();
   const canSwitchRole = user?.role === 'BOTH';
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -119,7 +120,7 @@ export default function ShipperProfileScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.section * 2 }]}
         keyboardShouldPersistTaps="handled"
       >
 

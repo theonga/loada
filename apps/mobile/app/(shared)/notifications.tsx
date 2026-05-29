@@ -3,7 +3,7 @@ import { View, Pressable, FlatList, StyleSheet, SectionList } from 'react-native
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { getNotifications, getShipperJobs, getDriverActiveJobs } from '@services';
 import { useAuthStore } from '@store/auth.store';
@@ -44,6 +44,7 @@ function timeAgo(iso: string): string {
 
 export default function NotificationsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const [notifs, setNotifs] = useState<AppNotification[]>([]);
   const [chatJobs, setChatJobs] = useState<Job[]>([]);
@@ -101,7 +102,7 @@ export default function NotificationsScreen() {
         <SectionList<ListItem>
           sections={sections}
           keyExtractor={(item, i) => (item.kind === 'chat' ? item.job.id : item.notif.id) + i}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + Spacing.section * 2 }]}
           stickySectionHeadersEnabled={false}
           renderSectionHeader={({ section }) => (
             <Text style={styles.sectionLabel}>{section.title}</Text>

@@ -16,6 +16,7 @@ import { useJobStore } from '@store/job.store';
 import { useWalletStore } from '@store/wallet.store';
 import { JobStatus } from '@constants/index';
 import { useCurrentLocation } from '@hooks/useCurrentLocation';
+import { activeScreenForStatus } from '@hooks/useActiveJobRoute';
 import { getAvailableLoads, getWalletBalance, setDriverOnline as setDriverOnlineApi, setDriverOffline as setDriverOfflineApi } from '@services';
 import type { Job } from '@/types';
 
@@ -158,7 +159,13 @@ export default function DriverHomeScreen() {
         {showActiveJob && activeJob && (
           <Pressable
             style={styles.activeJobCard}
-            onPress={() => router.push(`/(driver)/active/en-route`)}
+            onPress={() => {
+              // Route to whichever step matches the server-side job status, so
+              // re-entering an in-progress job doesn't drop the driver back on
+              // the "I've arrived at pickup" screen they already cleared.
+              const target = activeScreenForStatus(activeJob.status) ?? '/(driver)/active/en-route';
+              router.push(target as never);
+            }}
           >
             <Text style={styles.activeJobLabel}>ACTIVE JOB</Text>
             <Text style={styles.activeJobRoute}>

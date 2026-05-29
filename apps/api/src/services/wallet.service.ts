@@ -104,12 +104,27 @@ export async function deductCommission(
   commissionAmount: number,
 ) {
   const wallet = await getOrCreateWallet(driverId);
+  const reserved = parseFloat(wallet.reservedBalance.toString());
+
+  // The amount we want to charge may not match what was previously reserved
+  // (legacy bids with null commissionAmount, commission_pct changed between
+  // bid time and settlement, etc.). Take what's reserved first, then pull the
+  // shortfall from the available balance. Note is annotated so admin sees it
+  // in the wallet history.
+  const fromReserved = Math.min(reserved, commissionAmount);
+  const shortfall = Math.max(0, commissionAmount - reserved);
+
+  let note = "Loada platform fee";
+  if (shortfall > 0) {
+    note = `Loada platform fee (reserved $${fromReserved.toFixed(2)} + balance $${shortfall.toFixed(2)})`;
+  }
 
   await prisma.$transaction([
     prisma.driverWallet.update({
       where: { id: wallet.id },
       data: {
-        reservedBalance: { decrement: commissionAmount },
+        reservedBalance: { decrement: fromReserved },
+        ...(shortfall > 0 ? { balance: { decrement: shortfall } } : {}),
       },
     }),
     prisma.walletTransaction.create({
@@ -119,7 +134,7 @@ export async function deductCommission(
         amount: commissionAmount,
         bidId,
         jobId,
-        note: "Loada platform fee",
+        note,
         status: "PAID" as PaymentStatus,
       },
     }),

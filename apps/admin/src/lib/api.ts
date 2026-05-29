@@ -103,6 +103,12 @@ export const api = {
   getAnalytics: (params: AnalyticsQuery) =>
     request<AnalyticsData>(`/analytics?${new URLSearchParams(params as Record<string, string>)}`),
 
+  getFlaggedMessages: (params?: { page?: string; limit?: string }) =>
+    request<PaginatedFlaggedMessages>(`/audit/flagged-messages?${new URLSearchParams(params as Record<string, string>)}`),
+
+  getLowBids: (params?: { page?: string; limit?: string }) =>
+    request<PaginatedLowBids>(`/audit/low-bids?${new URLSearchParams(params as Record<string, string>)}`),
+
   bulkSuspendUsers:    (ids: string[], reason: string) =>
     request<{ updated: number }>("/users/bulk-suspend",   { method: "POST", body: JSON.stringify({ ids, reason }) }),
 
@@ -278,6 +284,48 @@ interface WalletQuery { page?: string; limit?: string; search?: string }
 interface PaginatedUsers { users: UserRecord[]; total: number; page: number; limit: number }
 interface PaginatedDrivers { drivers: DriverRecord[]; total: number; page: number; limit: number }
 interface PaginatedJobs { jobs: JobRecord[]; total: number; page: number; limit: number }
+
+export interface FlaggedMessageRecord {
+  id: string;
+  jobId: string;
+  senderId: string;
+  content: string | null;
+  flaggedReason: string;
+  createdAt: string;
+  sender: { id: string; name: string; phone: string; role: string };
+  job:    { id: string; originAddress: string; destAddress: string; status: string; shipperId: string };
+}
+
+interface PaginatedFlaggedMessages {
+  messages: FlaggedMessageRecord[];
+  total:    number;
+  page:     number;
+  limit:    number;
+}
+
+export interface LowBidJobRecord {
+  id:              string;
+  originAddress:   string;
+  destAddress:     string;
+  requiredTonnes:  number;
+  askingPrice:     string;
+  bidPrice:        string;
+  currency:        string;
+  status:          string;
+  createdAt:       string;
+  shipperName:     string;
+  driverName:      string;
+  distanceKm:      number;
+  estimatedMarket: number;
+  ratioPct:        number;
+}
+
+interface PaginatedLowBids {
+  jobs:      LowBidJobRecord[];
+  threshold: number;
+  page:      number;
+  limit:     number;
+}
 export interface WalletStats {
   /** balance + reservedBalance summed across every wallet — matches stats.totalWalletFunds */
   totalHeld:      number;

@@ -32,6 +32,18 @@ export async function placeBid(jobId: string, driverId: string, offeredPrice: nu
   if (!job) throw Object.assign(new Error("Job not found"), { statusCode: 404, code: "JOB_NOT_FOUND" });
   if (!driver) throw Object.assign(new Error("Driver not found"), { statusCode: 404, code: "DRIVER_NOT_FOUND" });
 
+  // Self-trade gate: a user with BOTH role could otherwise post a job as
+  // shipper and bid on it as driver, then accept their own bid. Even though
+  // commission is still charged, this inflates platform stats with fake
+  // activity, lets users launder wallet funds out as "earnings", and pollutes
+  // ratings. Reject it here at the source.
+  if (driver.user.id === job.shipper.user.id) {
+    throw Object.assign(
+      new Error("You can't bid on your own job."),
+      { statusCode: 400, code: "SELF_TRADE_FORBIDDEN" },
+    );
+  }
+
   if (driver.documentStatus !== "APPROVED") {
     throw Object.assign(new Error("Documents must be approved before bidding"), {
       statusCode: 403,

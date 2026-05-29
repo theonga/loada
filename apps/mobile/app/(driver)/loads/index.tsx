@@ -3,7 +3,7 @@ import { View, FlatList, Pressable, ScrollView, StyleSheet, RefreshControl, AppS
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { LoadCard } from '@components/ui/LoadCard';
 import { Skeleton } from '@components/ui/Skeleton';
@@ -13,7 +13,25 @@ import { useAuthStore } from '@store/auth.store';
 import { useJobStore } from '@store/job.store';
 import { JobStatus, BidStatus } from '@constants/index';
 import { getSocket } from '@services/socket';
+import { showToastWarning } from '@components/ui/Toast';
+import { activeScreenForStatus } from '@hooks/useActiveJobRoute';
 import type { Job, Bid, DriverProfile } from '@/types';
+
+const BIDDING_STATUSES: JobStatus[] = [
+  JobStatus.POSTED,
+  JobStatus.BIDDING,
+  JobStatus.RADIUS_EXPANDED,
+];
+
+function isJobExpired(job: Job): boolean {
+  if (job.status === JobStatus.EXPIRED) return true;
+  // Fallback for jobs whose worker hasn't run yet
+  return (
+    BIDDING_STATUSES.includes(job.status) &&
+    job.biddingExpiresAt != null &&
+    new Date(job.biddingExpiresAt) < new Date()
+  );
+}
 
 type TabKey = 'AVAILABLE' | 'BIDS' | 'ACTIVE' | 'HISTORY';
 
@@ -41,6 +59,7 @@ const HISTORY_STATUSES: JobStatus[] = [
 
 export default function DriverLoadsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const setActiveJob = useJobStore((s) => s.setActiveJob);
   const [availableLoads, setAvailableLoads] = useState<Job[]>([]);
@@ -208,7 +227,7 @@ export default function DriverLoadsScreen() {
         <FlatList
           data={displayedBids}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + Spacing.section * 2 }]}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={loadData} tintColor={C.accent} />}
           renderItem={({ item }) =>
             item.job ? (
@@ -217,7 +236,7 @@ export default function DriverLoadsScreen() {
                 myBidPrice={item.offeredPrice}
                 onPress={
                   item.status === BidStatus.EXPIRED
-                    ? () => {}
+                    ? () => showToastWarning("This bid has expired — the load is no longer accepting bids.")
                     : () => router.push(`/(driver)/bid/pending/${item.id}?jobId=${item.jobId}`)
                 }
               />
@@ -234,17 +253,25 @@ export default function DriverLoadsScreen() {
         <FlatList
           data={displayedJobs}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + Spacing.section * 2 }]}
           refreshControl={<RefreshControl refreshing={loading} onRefresh={loadData} tintColor={C.accent} />}
           renderItem={({ item }) => (
             <LoadCard
               job={item}
               onPress={() => {
                 if (activeTab === 'AVAILABLE') {
+                  if (isJobExpired(item)) {
+                    showToastWarning("This load has expired — bidding is closed.");
+                    return;
+                  }
                   router.push(`/(driver)/loads/${item.id}`);
                 } else if (IN_PROGRESS_STATUSES.includes(item.status)) {
                   setActiveJob(item);
-                  router.push('/(driver)/active/en-route');
+                  // Resume the right step in the active flow rather than always
+                  // dropping the driver back on the "I've arrived at pickup"
+                  // screen — which is meaningless once they're already IN_TRANSIT.
+                  const target = activeScreenForStatus(item.status) ?? '/(driver)/active/en-route';
+                  router.push(target as never);
                 } else {
                   router.push(`/(driver)/loads/${item.id}`);
                 }

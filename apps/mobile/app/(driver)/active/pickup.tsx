@@ -9,11 +9,13 @@ import { useJobStore } from '@store/job.store';
 import { usePhotoUpload } from '@hooks/usePhotoUpload';
 import { confirmPickup } from '@services';
 import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
+import { useActiveJobRouteGuard } from '@hooks/useActiveJobRoute';
 import { JobStatus } from '@constants/index';
 
 export default function PickupScreen() {
   const router = useRouter();
   const job = useEnsureActiveJob();
+  useActiveJobRouteGuard(job, '/(driver)/active/pickup');
   const setActiveJob = useJobStore((s) => s.setActiveJob);
   const { state: photoState, pickAndUpload } = usePhotoUpload('pickup');
   const [submitting, setSubmitting] = useState(false);

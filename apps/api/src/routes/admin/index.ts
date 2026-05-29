@@ -595,6 +595,139 @@ export async function adminRoutes(app: FastifyInstance) {
     });
   });
 
+  // ── Trust & safety audit ─────────────────────────────────────────────────────
+  //
+  // Surfaces the platform's two main collusion signals:
+  //   - Flagged chat messages (off-platform negotiation, phone numbers, etc.)
+  //   - Accepted bids that priced well below the market reference for the route
+  //
+  // Both are pure signals — no automated action is taken. Admin reviews and
+  // decides whether to suspend, dispute, or ignore.
+
+  app.get("/audit/flagged-messages", { preHandler: [requireAdmin] }, async (req, reply) => {
+    const query = z.object({
+      page:  z.coerce.number().default(1),
+      limit: z.coerce.number().default(50),
+    }).parse(req.query);
+
+    const where = { flaggedReason: { not: null } };
+
+    const [messages, total] = await Promise.all([
+      prisma.message.findMany({
+        where,
+        include: {
+          sender: { select: { id: true, name: true, phone: true, role: true } },
+          job:    { select: { id: true, originAddress: true, destAddress: true, status: true, shipperId: true } },
+        },
+        orderBy: { createdAt: "desc" },
+        skip:  (query.page - 1) * query.limit,
+        take:  query.limit,
+      }),
+      prisma.message.count({ where }),
+    ]);
+
+    return reply.send({ success: true, data: { messages, total, page: query.page, limit: query.limit } });
+  });
+
+  app.get("/audit/low-bids", { preHandler: [requireAdmin] }, async (req, reply) => {
+    const query = z.object({
+      page:  z.coerce.number().default(1),
+      limit: z.coerce.number().default(50),
+    }).parse(req.query);
+
+    // Use the same per-km × tonnage rate table the market reference falls back
+    // to. Anything where (accepted bid) / (estimated market) is below the
+    // configured threshold gets flagged. We compute in SQL so it doesn't
+    // matter how many jobs are on the platform.
+    const lowBidPct = parseFloat((await getAllConfig())["low_bid_alert_pct"]?.value ?? "60");
+
+    const rows = await prisma.$queryRaw<Array<{
+      id: string;
+      origin_address: string;
+      dest_address: string;
+      required_tonnes: number;
+      asking_price: string;
+      bid_price: string;
+      currency: string;
+      status: string;
+      created_at: Date;
+      shipper_name: string;
+      driver_name: string;
+      distance_km: number;
+      estimated_market: number;
+      ratio_pct: number;
+    }>>`
+      WITH job_with_bid AS (
+        SELECT
+          j.id,
+          j."originAddress"   AS origin_address,
+          j."destAddress"     AS dest_address,
+          j."requiredTonnes"  AS required_tonnes,
+          j."askingPrice"     AS asking_price,
+          b."offeredPrice"    AS bid_price,
+          j.currency,
+          j.status,
+          j."createdAt"       AS created_at,
+          su.name             AS shipper_name,
+          du.name             AS driver_name,
+          ST_Distance(
+            ST_SetSRID(ST_Point(j."originLng", j."originLat"), 4326)::geography,
+            ST_SetSRID(ST_Point(j."destLng",   j."destLat"),   4326)::geography
+          ) / 1000 AS distance_km,
+          CASE j."requiredTonnes"
+            WHEN  1 THEN COALESCE((SELECT value::float FROM "AppConfig" WHERE key = 'per_km_rate_1t'),  0.30)
+            WHEN  2 THEN COALESCE((SELECT value::float FROM "AppConfig" WHERE key = 'per_km_rate_2t'),  0.40)
+            WHEN  5 THEN COALESCE((SELECT value::float FROM "AppConfig" WHERE key = 'per_km_rate_5t'),  0.50)
+            WHEN 10 THEN COALESCE((SELECT value::float FROM "AppConfig" WHERE key = 'per_km_rate_10t'), 0.60)
+            WHEN 20 THEN COALESCE((SELECT value::float FROM "AppConfig" WHERE key = 'per_km_rate_20t'), 0.70)
+            WHEN 30 THEN COALESCE((SELECT value::float FROM "AppConfig" WHERE key = 'per_km_rate_30t'), 0.80)
+            ELSE 0.50
+          END AS per_km_rate
+        FROM "Job" j
+        JOIN "Bid" b           ON b.id = j."matchedBidId"
+        JOIN "ShipperProfile" sp ON sp.id = j."shipperId"
+        JOIN "User"   su       ON su.id = sp."userId"
+        JOIN "DriverProfile" dp ON dp.id = b."driverId"
+        JOIN "User"   du       ON du.id = dp."userId"
+        WHERE j.status IN ('MATCHED','PICKUP_EN_ROUTE','PICKUP_ARRIVED','LOADED','IN_TRANSIT','DELIVERED','COMPLETED')
+      )
+      SELECT
+        *,
+        GREATEST(1, distance_km * per_km_rate * required_tonnes) AS estimated_market,
+        (bid_price::float / GREATEST(1, distance_km * per_km_rate * required_tonnes)) * 100 AS ratio_pct
+      FROM job_with_bid
+      WHERE (bid_price::float / GREATEST(1, distance_km * per_km_rate * required_tonnes)) * 100 < ${lowBidPct}
+      ORDER BY created_at DESC
+      OFFSET ${(query.page - 1) * query.limit}
+      LIMIT ${query.limit}
+    `;
+
+    return reply.send({
+      success: true,
+      data: {
+        jobs: rows.map((r) => ({
+          id:              r.id,
+          originAddress:   r.origin_address,
+          destAddress:     r.dest_address,
+          requiredTonnes:  Number(r.required_tonnes),
+          askingPrice:     r.asking_price,
+          bidPrice:        r.bid_price,
+          currency:        r.currency,
+          status:          r.status,
+          createdAt:       r.created_at,
+          shipperName:     r.shipper_name,
+          driverName:      r.driver_name,
+          distanceKm:      Number(r.distance_km),
+          estimatedMarket: Math.round(Number(r.estimated_market)),
+          ratioPct:        Math.round(Number(r.ratio_pct)),
+        })),
+        threshold: lowBidPct,
+        page:  query.page,
+        limit: query.limit,
+      },
+    });
+  });
+
   app.patch("/wallets/:driverId/adjust", { preHandler: [requireAdmin] }, async (req, reply) => {
     try {
       const admin = getAdmin(req);

@@ -24,7 +24,11 @@ export type ConfigKey =
   | "per_km_rate_30t"
   | "loada_commission_pct"
   | "min_deposit_usd"
-  | "max_bid_cancel_per_week";
+  | "max_bid_cancel_per_week"
+  | "delivery_gps_tolerance_km"
+  | "auto_settle_in_transit_days"
+  | "auto_complete_delivered_hours"
+  | "low_bid_alert_pct";
 
 export const CONFIG_DEFAULTS: Record<ConfigKey, string> = {
   bid_ttl_seconds: "300",
@@ -47,6 +51,10 @@ export const CONFIG_DEFAULTS: Record<ConfigKey, string> = {
   loada_commission_pct: "15",
   min_deposit_usd: "10",
   max_bid_cancel_per_week: "5",
+  delivery_gps_tolerance_km: "0.5",
+  auto_settle_in_transit_days: "7",
+  auto_complete_delivered_hours: "72",
+  low_bid_alert_pct: "60",
 };
 
 export const CONFIG_META: Record<ConfigKey, { label: string; group: string }> = {
@@ -70,6 +78,10 @@ export const CONFIG_META: Record<ConfigKey, { label: string; group: string }> = 
   loada_commission_pct:                { label: "Loada commission percentage (%)", group: "pricing" },
   min_deposit_usd:                     { label: "Minimum wallet deposit (USD)", group: "pricing" },
   max_bid_cancel_per_week:             { label: "Max bid cancellations per driver per week (abuse limit)", group: "bidding" },
+  delivery_gps_tolerance_km:           { label: "GPS proximity tolerance for pickup/delivery (km)", group: "trust" },
+  auto_settle_in_transit_days:         { label: "Auto-settle IN_TRANSIT commission after N days (anti-ghost)", group: "trust" },
+  auto_complete_delivered_hours:       { label: "Auto-complete DELIVERED jobs after N hours (no rating)", group: "trust" },
+  low_bid_alert_pct:                   { label: "Flag bids below this % of market median (low-bid alert)", group: "trust" },
 };
 
 export async function getConfig(key: ConfigKey): Promise<string> {

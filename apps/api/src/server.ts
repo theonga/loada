@@ -14,7 +14,7 @@ async function main() {
   const socketServer = createSocketServer(app.server);
   setSocketServer(socketServer);
 
-  startWorkers();
+  await startWorkers();
 
   // Startup sweep — catches any bidding sessions that became overdue while the
   // API was down (BullMQ delayed tasks can be lost on Redis flushes or worker

@@ -3,7 +3,7 @@ import { View, FlatList, Pressable, ScrollView, StyleSheet } from 'react-native'
 import { useFocusEffect } from 'expo-router';
 import { Text } from '@components/ui/Text';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { LoadCard } from '@components/ui/LoadCard';
 import { Skeleton } from '@components/ui/Skeleton';
@@ -51,6 +51,7 @@ function isExpired(job: Job): boolean {
 
 export default function ShipperJobsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const prefill = useDraftJobStore((s) => s.prefill);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -152,7 +153,7 @@ export default function ShipperJobsScreen() {
         <FlatList
           data={filtered}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={[styles.list, { paddingBottom: insets.bottom + Spacing.section * 2 }]}
           renderItem={({ item }) => {
             const canRepost = isExpired(item) || item.status === JobStatus.COMPLETED || item.status === JobStatus.CANCELLED;
             return (

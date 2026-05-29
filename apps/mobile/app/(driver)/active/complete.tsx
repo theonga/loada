@@ -10,10 +10,12 @@ import { useJobStore } from '@store/job.store';
 import { usePhotoUpload } from '@hooks/usePhotoUpload';
 import { confirmDelivery } from '@services';
 import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
+import { useActiveJobRouteGuard } from '@hooks/useActiveJobRoute';
 
 export default function JobCompleteScreen() {
   const router = useRouter();
   const job = useEnsureActiveJob();
+  useActiveJobRouteGuard(job, '/(driver)/active/complete');
   const setActiveJob = useJobStore((s) => s.setActiveJob);
   const { state: photoState, pickAndUpload } = usePhotoUpload('delivery');
   const [recipient, setRecipient] = useState('');

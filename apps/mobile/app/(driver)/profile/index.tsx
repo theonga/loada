@@ -10,7 +10,7 @@ import {
 import { Text } from "@components/ui/Text";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   useColors,
   ColorPalette,
@@ -39,6 +39,7 @@ type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
 
 export default function DriverProfileScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user, logout, updateName, updateEmail } = useAuthStore();
   const canSwitchRole = user?.role === 'BOTH';
   const [driver, setDriver] = useState<DriverProfile | null>(null);
@@ -223,7 +224,7 @@ export default function DriverProfileScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.section * 2 }]}
         keyboardShouldPersistTaps="handled"
       >
         {loadError ? (

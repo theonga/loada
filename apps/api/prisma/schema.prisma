@@ -153,16 +153,22 @@ model Delivery {
 }
 
 model Message {
-  id          String    @id @default(uuid())
-  jobId       String
-  senderId    String
-  content     String?
-  mediaUrl    String?
-  mediaType   String?
-  isRead      Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  job         Job       @relation(fields: [jobId], references: [id])
-  sender      User      @relation("SentMessages", fields: [senderId], references: [id])
+  id            String    @id @default(uuid())
+  jobId         String
+  senderId      String
+  content       String?
+  mediaUrl      String?
+  mediaType     String?
+  isRead        Boolean   @default(false)
+  // Populated by the chat moderation pass when a message contains a phone
+  // number, off-platform contact handle, or solicitation to settle in cash.
+  // Used by the admin audit feed to flag potential commission evasion.
+  flaggedReason String?
+  createdAt     DateTime  @default(now())
+  job           Job       @relation(fields: [jobId], references: [id])
+  sender        User      @relation("SentMessages", fields: [senderId], references: [id])
+
+  @@index([flaggedReason])
 }
 
 model Rating {

@@ -4,6 +4,7 @@ import { requireAuth } from "@/middleware/auth";
 import { sendMessageSchema, messagesQuerySchema } from "@/schemas/message.schema";
 import { prisma } from "@/lib/prisma";
 import { getSocketServer } from "@/lib/socket";
+import { moderateChatMessage } from "@/lib/chat-moderation";
 
 type AuthUser = { id: string };
 
@@ -25,6 +26,11 @@ export async function messageRoutes(app: FastifyInstance) {
         return reply.status(404).send({ success: false, error: { code: "JOB_NOT_FOUND", message: "Job not found" } });
       }
 
+      // Soft moderation: flag — don't block — messages that look like
+      // off-platform negotiation, phone numbers, or commission-avoidance
+      // suggestions. Visible to admin via the audit feed.
+      const { flaggedReason } = moderateChatMessage(body.content);
+
       const message = await prisma.message.create({
         data: {
           jobId: body.jobId,
@@ -32,6 +38,7 @@ export async function messageRoutes(app: FastifyInstance) {
           content: body.content,
           mediaUrl: body.mediaUrl,
           mediaType: body.mediaType,
+          flaggedReason,
         },
         include: { sender: { select: { id: true, name: true, profilePhotoUrl: true } } },
       });

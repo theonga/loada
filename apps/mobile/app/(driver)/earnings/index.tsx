@@ -3,7 +3,7 @@ import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius } from '@constants/theme';
 import { EarningsBar } from '@components/ui/EarningsBar';
 import { Skeleton } from '@components/ui/Skeleton';
@@ -17,6 +17,7 @@ export default function EarningsScreen() {
   const user = useAuthStore((s) => s.user);
   const { balance, setWallet, commissionPct } = useWalletStore();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -53,7 +54,7 @@ export default function EarningsScreen() {
         <Text style={styles.week}>{earnings.weekLabel}</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.section * 2 }]}>
         {/* Wallet balance card — always at the top */}
         <Pressable style={styles.walletCard} onPress={() => router.push('/(driver)/wallet')}>
           <View style={styles.walletLeft}>

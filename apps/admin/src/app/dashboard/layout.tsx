@@ -14,6 +14,7 @@ function IconTruck   ({ size = 16 }: IconProps) { return <svg width={size} heigh
 function IconPackage ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M3.3 7.3 12 12l8.7-4.7"/><path d="M12 12v9"/><path d="M3 7.5v9L12 21l9-4.5v-9L12 3z"/></svg>; }
 function IconWallet  ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M3 7v10a2 2 0 0 0 2 2h15v-4"/><path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4z"/></svg>; }
 function IconSliders ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h4"/><path d="M12 12h8"/><circle cx="10" cy="12" r="2"/><path d="M4 18h12"/><path d="M20 18h0"/><circle cx="18" cy="18" r="2"/></svg>; }
+function IconShield  ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M12 3 4 6v6c0 4.5 3.5 8 8 9 4.5-1 8-4.5 8-9V6z"/><path d="m8 12 3 3 5-6"/></svg>; }
 function IconLogout  ({ size = 14 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M14 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-2"/><path d="M10 12h10"/><path d="m17 9 3 3-3 3"/></svg>; }
 
 // ── Nav structure ────────────────────────────────────────────────────
@@ -39,6 +40,7 @@ const NAV: { label: string; items: NavItem[] }[] = [
     label: "Platform",
     items: [
       { href: "/dashboard/wallets",       label: "Wallets",       Icon: IconWallet },
+      { href: "/dashboard/audit",         label: "Trust & Audit", Icon: IconShield },
       { href: "/dashboard/config",        label: "Configuration", Icon: IconSliders },
     ],
   },

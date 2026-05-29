@@ -3,7 +3,7 @@ import { View, Pressable, ScrollView, StyleSheet, Linking } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 
 const WHATSAPP_NUMBER = '+263773057669';
@@ -19,6 +19,7 @@ const FAQ = [
 
 export default function HelpScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -32,7 +33,7 @@ export default function HelpScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.section * 2 }]}>
         <Pressable
           style={styles.contactCard}
           onPress={() => Linking.openURL(`https://wa.me/${WHATSAPP_NUMBER.replace(/\D/g, '')}`)}

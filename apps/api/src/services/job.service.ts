@@ -4,7 +4,7 @@ import { bidExpiryQueue, radiusExpansionQueue, notificationQueue } from "@/lib/q
 import { getSocketServer } from "@/lib/socket";
 import { getConfigNum } from "@/lib/app-config";
 import { notifyDriver, notifyShipper } from "./notification.service";
-import { releaseCommission } from "./wallet.service";
+import { releaseCommission, deductCommission } from "./wallet.service";
 import type { JobStatus, ShipperPaymentMethod, TruckType } from "@prisma/client";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
@@ -161,6 +161,16 @@ const ACTIVE_OR_BIDDING: JobStatus[] = [
 ];
 
 /**
+ * Statuses where the driver has clearly started doing real work — they've
+ * arrived at pickup, loaded the cargo, or are mid-trip. Cancelling here means
+ * Loada keeps the commission (driver got paid for the run by some mechanism;
+ * we don't get to claw back what's already been earned).
+ */
+const POST_PICKUP_STATUSES: JobStatus[] = [
+  "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT", "DELIVERED",
+];
+
+/**
  * Shared cleanup for any job cancellation:
  *   - mark CANCELLED + reject every pending/countered/accepted bid
  *   - clear the Redis bid-session cache key
@@ -188,7 +198,18 @@ async function performJobCancellation(
     });
   }
 
-  const wasMatched = (["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"] as JobStatus[]).includes(job.status);
+  const wasMatched = (["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT", "DELIVERED"] as JobStatus[]).includes(job.status);
+  const wasPostPickup = POST_PICKUP_STATUSES.includes(job.status);
+
+  // Commission release policy:
+  //  - Pre-pickup (POSTED..PICKUP_EN_ROUTE): refund every reserved commission.
+  //    Driver hasn't moved cargo, no work performed.
+  //  - Post-pickup (PICKUP_ARRIVED+): the ACCEPTED bid's commission is either
+  //    deducted now (we treat the trip as completed) or stays reserved until
+  //    an admin makes a call. Either way it does NOT get auto-refunded. This
+  //    closes the "shipper cancels DELIVERED to bail the driver out" hole.
+  //    Non-accepted bids' commissions are always refundable.
+  const refundAllCommissions = !wasPostPickup;
 
   await prisma.job.update({ where: { id: job.id }, data: { status: "CANCELLED" } });
   await prisma.bid.updateMany({
@@ -205,20 +226,34 @@ async function performJobCancellation(
 
   // Fire-and-forget — wallet release failures shouldn't block the cancellation.
   for (const bid of job.bids) {
-    if (bid.commissionAmount) {
-      releaseCommission(
-        bid.driverId,
-        bid.id,
-        parseFloat(bid.commissionAmount.toString()),
-        releaseReason,
-      ).catch(() => {});
+    if (!bid.commissionAmount) continue;
+
+    const amount = parseFloat(bid.commissionAmount.toString());
+    const isAcceptedBid = bid.status === "ACCEPTED";
+
+    if (refundAllCommissions) {
+      releaseCommission(bid.driverId, bid.id, amount, releaseReason).catch(() => {});
+    } else if (!isAcceptedBid) {
+      // The losing bids never did any work — they always get refunded.
+      releaseCommission(bid.driverId, bid.id, amount, releaseReason).catch(() => {});
+    } else {
+      // Accepted bid + post-pickup cancel: settle the commission as if the
+      // job completed. Loada keeps its cut, the reserved balance moves out.
+      // If this fails the reservation stays — an admin can manually release
+      // it from the wallet page if needed.
+      deductCommission(bid.driverId, bid.id, job.id, amount).catch((err) => {
+        console.error("[performJobCancellation] post-pickup settlement failed", { jobId: job.id, bidId: bid.id, err });
+      });
     }
 
-    if (wasMatched && bid.status === "ACCEPTED") {
+    if (wasMatched && isAcceptedBid) {
       const title = "Job cancelled";
+      const refundCopy = refundAllCommissions
+        ? "Your reserved balance has been returned."
+        : "Because the cargo had already been picked up, the platform fee was settled rather than refunded — contact support if this is wrong.";
       const body = ctx.actor === "admin"
-        ? `An admin cancelled this job. Reason: ${ctx.reason}. Your reserved balance has been returned.`
-        : `${job.shipper.user.name} cancelled the job. Your reserved balance has been returned.`;
+        ? `An admin cancelled this job. Reason: ${ctx.reason}. ${refundCopy}`
+        : `${job.shipper.user.name} cancelled the job. ${refundCopy}`;
       notifyDriver(bid.driverId, title, body, { jobId: job.id }).catch(() => {});
     }
   }
@@ -252,6 +287,18 @@ export async function cancelJob(jobId: string, userId: string) {
   if (job.shipper.userId !== userId) {
     throw Object.assign(new Error("Forbidden"), { statusCode: 403, code: "FORBIDDEN" });
   }
+
+  // Shippers can only cancel pre-pickup. Once the driver has arrived at the
+  // pickup point (status PICKUP_ARRIVED or beyond), cancellation must go
+  // through the dispute / admin flow. This closes the collusion path where
+  // shipper + driver agreed to "cancel" a delivered job to refund commission.
+  if (POST_PICKUP_STATUSES.includes(job.status)) {
+    throw Object.assign(
+      new Error("This job can't be cancelled — the driver has already arrived at pickup. Contact support to open a dispute."),
+      { statusCode: 400, code: "POST_PICKUP_NO_SHIPPER_CANCEL" },
+    );
+  }
+
   await performJobCancellation(job, { actor: "shipper" });
 }
 

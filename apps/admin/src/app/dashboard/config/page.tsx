@@ -6,7 +6,7 @@ import { PageHead } from "@/components/ui";
 type ConfigMap = Record<string, ConfigEntry>;
 
 // Display order — matches the design's grouping
-const GROUP_ORDER = ["pricing", "bidding", "matching", "auth", "payments", "market"];
+const GROUP_ORDER = ["pricing", "bidding", "matching", "trust", "auth", "payments", "market"];
 
 // Per-group accent class (sets border-left color via .config-card.<accent>)
 // plus the icon glyph and the title.
@@ -82,6 +82,19 @@ const GROUP_META: Record<string, {
            strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="6" width="18" height="13" rx="2" />
         <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    ),
+  },
+  trust: {
+    label: "Trust & Safety",
+    accent: "amber",
+    bg: "rgba(245,166,35,0.14)",
+    fg: "var(--color-amber)",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3 4 6v6c0 4.5 3.5 8 8 9 4.5-1 8-4.5 8-9V6z" />
+        <path d="m8 12 3 3 5-6" />
       </svg>
     ),
   },

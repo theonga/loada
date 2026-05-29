@@ -12,6 +12,7 @@ import { useJobStore } from '@store/job.store';
 import { useLocationStore } from '@store/location.store';
 import { updateJobStatus } from '@services';
 import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
+import { useActiveJobRouteGuard } from '@hooks/useActiveJobRoute';
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371;
@@ -57,6 +58,7 @@ async function fetchRoute(
 export default function EnRouteScreen() {
   const router = useRouter();
   const job = useEnsureActiveJob();
+  useActiveJobRouteGuard(job, '/(driver)/active/en-route');
   const setActiveJob = useJobStore((s) => s.setActiveJob);
   const driverLoc = useLocationStore((s) => s.driverLocation);
   const setDriverLocation = useLocationStore((s) => s.setDriverLocation);

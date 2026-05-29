@@ -241,16 +241,218 @@ crashes the MapView on Android. `PROVIDER_DEFAULT` on Android still renders Goog
 
 ---
 
-## 2026-05-22 — InDrive-style pricing: no platform commission
+## 2026-05-22 — InDrive-style pricing: no platform commission ~~(SUPERSEDED 2026-05-29)~~
 
-**Decision:** Loada charges drivers a flat subscription (weekly/monthly/annual).
+**SUPERSEDED** by the 2026-05-29 "Wallet pay-per-use commission model" decision below.
+The subscription tables, workers, routes, and config keys were removed on 2026-05-29.
+This entry is kept for history.
+
+**Original decision:** Loada charges drivers a flat subscription (weekly/monthly/annual).
 There is no per-job commission deducted from the agreed price.
 
-**Why:** This matches the InDrive model that drivers in Zimbabwe are familiar with.
-Commission-based models require escrow and payment intermediation, which adds legal and
-technical complexity. Flat subscriptions are simpler, more predictable for drivers, and
-provide upfront revenue regardless of job completion rate.
+**Original why:** This matches the InDrive model. Commission-based models require escrow
+and payment intermediation, which adds legal and technical complexity. Flat subscriptions
+were simpler and provided upfront revenue.
 
-**Schema impact:** `Job.askingPrice` and `Bid.offeredPrice` are the negotiated amounts
-paid directly between shipper and driver (outside the platform, cash or EcoCash P2P).
-The platform only processes subscription payments via Paynow.
+**Why superseded:** Subscriptions create friction for new drivers (commit cash upfront
+before earning anything) and create a perverse incentive for Loada to recruit drivers
+who never get a job. A per-use commission model aligns Loada's incentives with the
+drivers' success and lowers the barrier to first bid. See the 2026-05-29 decision for
+details on the new wallet flow.
+
+---
+
+## 2026-05-29 — Wallet pay-per-use commission model (replaces subscriptions)
+
+**Decision:** Loada charges a configurable commission percentage (`loada_commission_pct`,
+default 15%) on each accepted bid, deducted from a driver-funded wallet. No subscriptions.
+
+**Flow:**
+
+1. Driver tops up wallet via Paynow (EcoCash / OneMoney / VMC card) — `WalletTransaction.type = DEPOSIT`
+2. On `placeBid`: `reserveCommission` atomically moves `commissionAmount` from `DriverWallet.balance` to `DriverWallet.reservedBalance` and writes the amount to `Bid.commissionAmount`
+3. On bid reject / job expire / pre-pickup cancel: `releaseCommission` moves the reserved amount back to `balance`
+4. On `confirmDelivery` (or `auto-settle` worker): `deductCommission` retires the reserved amount as Loada revenue (`WalletTransaction.type = COMMISSION_DEDUCT`)
+
+**Why:** Detailed in the SUPERSEDED 2026-05-22 entry above. Short version: better incentive
+alignment, lower friction for new drivers, easier to A/B test pricing.
+
+**Schema impact:** Removed `Subscription` and `SubscriptionPayment` tables and the
+`SubscriptionPlan` / `SubscriptionStatus` enums. Added `DriverWallet` and `WalletTransaction`
+with `WalletTxType` enum (`DEPOSIT | COMMISSION_RESERVE | COMMISSION_RELEASE | COMMISSION_DEDUCT | REFUND`).
+
+**Service impact:** Deleted `subscription.service.ts`, `subscription-renewal.worker.ts`,
+`subscription-expiry.worker.ts`, the `/v1/subscriptions/*` routes, the `requireActiveSubscription`
+middleware, and the `subscription_price_*` / `trial_period_days` config keys.
+
+**Trade-off accepted:** Drivers must keep wallet funded; an empty wallet means they can't
+bid. The wallet UI shows a low-balance banner on the driver home screen, and the bid form
+blocks with a clear "deposit to bid" CTA. Min deposit is `$min_deposit_usd` (default 10).
+
+---
+
+## 2026-05-29 — Anti-fraud / commission-integrity hardening
+
+**Decision:** Closed seven holes in the commission system that could be exploited to
+avoid the platform fee. The full list with severity is in the "Trust & Safety" section
+of CLAUDE.md; the key technical decisions are recorded here.
+
+### Server-side GPS proximity gate
+
+**Decision:** `confirmPickup` and `confirmDelivery` reject the transition when the driver's
+`DriverProfile.lastLocation*` is more than `delivery_gps_tolerance_km` (default 0.5 km)
+from the waypoint, or the fix is older than 30 minutes.
+
+**Why:** Without this, a driver could tap through every active-job screen from their
+couch, deduct fake commission once, and farm rating count. The gate forces real device
+presence at the waypoint.
+
+**Important:** The check reads the location from the **server-side** `DriverProfile` row,
+populated by the live `/location` socket heartbeat. **We do not trust the client-supplied
+`lat`/`lng` in the request body** — those still ride along for storage on `Delivery`, but
+the verification path ignores them. A malicious client could otherwise spoof any
+coordinate.
+
+**Alternative rejected:** Hardware attestation (Play Integrity, App Attest). Real
+verification but adds platform-specific complexity and fails on the older Android devices
+common in our target market.
+
+### Locked shipper cancellation post-pickup
+
+**Decision:** Shipper-initiated cancel is rejected with `POST_PICKUP_NO_SHIPPER_CANCEL`
+once the job has reached `PICKUP_ARRIVED`. Admin can still force-cancel anything, but
+the post-pickup admin cancel path **deducts** the accepted bid's commission instead of
+refunding it.
+
+**Why:** The original `performJobCancellation` refunded every reserved commission on any
+non-terminal cancellation, including `DELIVERED`. Shipper + driver could collude: driver
+delivers, shipper "cancels", commission is refunded. Now Loada keeps the cut on any
+post-pickup cancellation.
+
+**Refund matrix:**
+- Pre-pickup cancel (POSTED..PICKUP_EN_ROUTE) → refund all commissions (no work done)
+- Post-pickup cancel of accepted bid → deduct as if delivered
+- Post-pickup cancel of losing bid → always refundable (they never did the work)
+
+### Commission-amount fallback
+
+**Decision:** When `confirmDelivery` sees `Bid.commissionAmount = null`, it recomputes
+from `loada_commission_pct × Bid.offeredPrice` instead of silently skipping the deduction.
+`deductCommission` is also resilient against reservation mismatch: pulls from
+`reservedBalance` first then `balance` for any shortfall, with the wallet transaction
+note annotated accordingly.
+
+**Why:** The previous `if (acceptedBid?.commissionAmount) { ... }` guard meant any bid
+without a stored commission (legacy bid from before the wallet system, future
+admin-injected bid, migration glitch) paid no commission at all. Silent revenue leak with
+no alarm.
+
+### Self-trade prevention
+
+**Decision:** `placeBid` throws `SELF_TRADE_FORBIDDEN` when the bidder's user ID equals
+the job's shipper user ID.
+
+**Why:** Now that a user can hold the `BOTH` role (see the 2026-05-29 OTP role-upgrade
+decision), they could post a job and accept their own bid. Loada still collects commission,
+but the activity is fake — inflates platform stats, lets the user move wallet funds out
+as "earnings", and pollutes ratings. One-line check, zero downside.
+
+### Auto-settle hourly worker
+
+**Decision:** Added a new `auto-settle` BullMQ queue with a `0 * * * *` repeat schedule.
+The worker runs `runAutoSettleSweep` which:
+
+1. Force-completes `IN_TRANSIT` jobs idle for more than `auto_settle_in_transit_days`
+   (default 7) — transitions to `DELIVERED` and runs `deductCommission`
+2. Force-completes `DELIVERED` jobs idle for more than `auto_complete_delivered_hours`
+   (default 72) — transitions to `COMPLETED` regardless of ratings
+
+**Why:** Before this, a driver could ghost the trip — drop cargo, get paid by shipper,
+never tap "Mark delivered". The reservation stayed locked but Loada never received the
+commission. The driver self-penalised by being unable to take new jobs while ghosted, but
+a single-shot cash run was enough motivation to walk away. Now the commission auto-settles
+after a week.
+
+**Why hourly cron instead of per-job delayed task:** Per-job delayed tasks are easy to
+lose on Redis flushes or worker restarts. A periodic sweep is cheap and self-healing.
+
+### Chat moderation flag (soft block)
+
+**Decision:** Every chat message is scanned by `lib/chat-moderation.ts` against phone-number
+patterns, contact-handle patterns (WhatsApp / Telegram / email), and collusion phrases
+("off-platform", "skip the fee", "cash only", "cancel and re-post directly", etc.). Hits
+are stored in `Message.flaggedReason` and surfaced on `/dashboard/audit`.
+
+**Why hard-blocking is wrong here:** Cash-on-delivery is by design (Loada doesn't process
+the shipper→driver payment). Some legitimate messages contain phone numbers (recipient
+contact for delivery), some legitimate messages mention cash. Soft flagging keeps the UX
+clean and pushes the judgement call onto admin review.
+
+**Pattern surface lives in code, not config:** Regex patterns are versioned in git rather
+than the AppConfig table because they're operationally sensitive — a bad config edit
+could pin Loada below an alert threshold. The `low_bid_alert_pct` threshold *is* in
+config because the trade-off is purely numerical.
+
+### Low-bid alert query
+
+**Decision:** `GET /v1/admin/audit/low-bids` runs a single PostGIS / SQL query that joins
+each matched job with its accepted bid, computes the per-km × tonnage market estimate
+(same per-km rates the `MarketReferenceWidget` fallback uses), and returns any row whose
+`bidPrice / estimate < low_bid_alert_pct / 100`.
+
+**Why SQL not Node:** Pure SQL keeps the query fast even at scale, and lets the admin
+sort/paginate without loading every accepted bid into memory.
+
+### New config keys (group `trust`)
+
+| Key                              | Default | Effect                                       |
+| -------------------------------- | ------- | -------------------------------------------- |
+| `delivery_gps_tolerance_km`      | `0.5`   | GPS proximity tolerance for pickup/delivery |
+| `auto_settle_in_transit_days`    | `7`     | IN_TRANSIT auto-settle threshold             |
+| `auto_complete_delivered_hours`  | `72`    | DELIVERED auto-complete threshold            |
+| `low_bid_alert_pct`              | `60`    | Low-bid alert threshold                      |
+
+**Schema impact:** `Message.flaggedReason String?` with index on `(flaggedReason)`. No
+other schema changes — all of the rest is service-layer.
+
+---
+
+## 2026-05-29 — OTP role upgrade to `BOTH` + in-app role switch
+
+**Decision:** `verifyOTPAndLogin` now upgrades an existing single-role user to `BOTH`
+when they sign in via the other role at the role-selection screen, automatically creating
+the missing profile. Added `POST /v1/auth/switch-role` so `BOTH` users can flip their
+active role without re-logging in.
+
+**Why:** Previously, a user who signed up as `SHIPPER` and later picked `DRIVER` at the
+role screen would be returned with their original `SHIPPER` role, the mobile would route
+them to `/(driver)`, and they'd see an empty driver UX (no driver profile, can't bid,
+no obvious recovery path). The new flow detects the mismatch and treats it as a role
+upgrade request.
+
+**Role-switch token:** The access token now carries the *active* role (not the user's
+underlying `User.role`). Switching role re-signs a new access token with the new active
+role baked in. Mobile auth store tracks `role` separately from `user.role`.
+
+**Self-trade implication:** The role upgrade made self-trade trivially possible — closed
+in the same PR by the `SELF_TRADE_FORBIDDEN` check in `placeBid`.
+
+---
+
+## 2026-05-29 — Active-job screen routing keyed off `job.status`
+
+**Decision:** Driver-side entry points to the active job (`/(driver)/index.tsx` active
+card, `/(driver)/loads/index.tsx` Active tab, `/(driver)/match/[jobId].tsx`) now use
+`activeScreenForStatus(job.status)` to pick the right screen instead of always pushing
+`/active/en-route`. Each active screen also calls `useActiveJobRouteGuard` which redirects
+to the correct screen when the in-memory job has progressed past the screen's expected
+status.
+
+**Why:** The previous flow always landed the driver on `/active/en-route` regardless of
+the server-side job status. A driver who'd already completed pickup and was in
+`IN_TRANSIT` would re-enter from home and see "I've arrived at pickup" — tapping it
+silently failed because the server enforces `PICKUP_ARRIVED` as the prerequisite. Users
+thought the system suspected them of lying about pickup.
+
+**Hook contract:** `useActiveJobRouteGuard(job, expectedPath)` is a no-op for matching
+or null status. It only fires when the server says the job is on a different step.

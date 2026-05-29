@@ -10,6 +10,7 @@ import * as Location from 'expo-location';
 import { DARK_MAP_STYLE } from '@components/ui/MapBg';
 import { useLocationStore } from '@store/location.store';
 import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
+import { useActiveJobRouteGuard } from '@hooks/useActiveJobRoute';
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371;
@@ -53,6 +54,7 @@ async function fetchRoute(
 export default function InTransitScreen() {
   const router = useRouter();
   const job = useEnsureActiveJob();
+  useActiveJobRouteGuard(job, '/(driver)/active/in-transit');
   const driverLoc = useLocationStore((s) => s.driverLocation);
   const setDriverLocation = useLocationStore((s) => s.setDriverLocation);
   const [routePoints, setRoutePoints] = useState<{ latitude: number; longitude: number }[]>([]);

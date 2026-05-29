@@ -23,6 +23,7 @@ import { disconnectAll } from '@services/socket';
 import { DevPanel } from '@components/dev/DevPanel';
 import { usePushToken } from '@hooks/usePushToken';
 import { AppAlertHost } from '@components/ui/AppAlert';
+import { ToastHost } from '@components/ui/Toast';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -100,6 +101,7 @@ export default function RootLayout() {
           <RootLayoutNav />
           <DevPanel />
           <AppAlertHost />
+          <ToastHost />
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

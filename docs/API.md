@@ -37,27 +37,35 @@ Verify OTP and log in (or register on first use).
 ```json
 { "phone": "+263771234567", "code": "123456", "role": "SHIPPER" }
 ```
-`role` accepted values: `SHIPPER`, `DRIVER`
+`role` accepted values: `SHIPPER`, `DRIVER` — the role the user picked at the role-selection screen.
 
 **Response**
 ```json
 {
   "data": {
-    "user": { "id": "...", "name": "...", "role": "SHIPPER", "phone": "+263771234567" },
+    "user": { "id": "...", "name": "...", "role": "BOTH", "phone": "+263771234567" },
     "accessToken": "eyJ...",
     "refreshToken": "abc123...",
-    "isNewUser": true
+    "isNewUser": false,
+    "activeRole": "DRIVER"
   }
 }
 ```
 Access token expires in 15 minutes. Refresh token expires in 30 days.
 
-`isNewUser: true` means this is the first login for this phone number. The mobile client
-should route new users to the name-collection screen (`/(auth)/name`) before role-specific
-onboarding. Returning users go directly to their home screen.
+`activeRole` is the role the client should drop the user into right now. For a single-role
+user it always equals `user.role`. For a `BOTH` user it reflects the choice they made at
+the role screen on this login.
 
-New users are created with an empty `name`. The client **must** call `PATCH /auth/me`
-with the user's chosen name before proceeding.
+**Role-upgrade behaviour:** if an existing single-role user signs in with the other role,
+their `User.role` is upgraded to `BOTH` and the missing profile (`ShipperProfile` or
+`DriverProfile`) is created automatically. `activeRole` in the response will be the role
+they just picked. This avoids the dead-end where a SHIPPER-signed-up user could pick
+"Driver" and land in an empty driver UI.
+
+`isNewUser: true` means this is the first login for this phone number. New users are
+created with an empty `name` — the client **must** call `PATCH /auth/me` with the
+user's chosen name before proceeding.
 
 ---
 
@@ -96,6 +104,32 @@ Issue a new access token using a refresh token.
 Invalidate the current refresh token.
 
 **Auth** required.
+
+---
+
+### POST /auth/switch-role
+Switch the active role on the current session. `BOTH` users only — single-role users
+need to log in again with the other role to upgrade.
+
+**Auth** required
+
+**Body**
+```json
+{ "role": "DRIVER" }
+```
+`role` accepted values: `SHIPPER`, `DRIVER`
+
+**Response**
+```json
+{ "data": { "accessToken": "eyJ...", "activeRole": "DRIVER" } }
+```
+
+The returned access token carries the new active role. The client should swap its stored
+token in place and re-mount the role-specific tabs.
+
+**Errors**
+- `ROLE_UPGRADE_REQUIRED` (400) — user only holds one role; need to re-login with the other role
+- `NO_SHIPPER_PROFILE` / `NO_DRIVER_PROFILE` (400) — profile missing on `BOTH` user (shouldn't happen in normal flow)
 
 ---
 
@@ -159,9 +193,17 @@ Get a single job with bids and delivery.
 ---
 
 ### PATCH /jobs/:jobId/cancel
-Cancel a job. Shipper only. Job must be in POSTED or BIDDING status.
+Cancel a job. Shipper only.
 
 **Auth** required (SHIPPER role)
+
+**Cancellation rules:**
+- Allowed in `POSTED`, `BIDDING`, `RADIUS_EXPANDED`, `MATCHED`, `PICKUP_EN_ROUTE` — all reserved commissions are refunded to the bidding drivers.
+- **Rejected with `POST_PICKUP_NO_SHIPPER_CANCEL`** once status reaches `PICKUP_ARRIVED`, `LOADED`, `IN_TRANSIT`, or `DELIVERED`. Shipper must open a dispute via support; only admin can force-cancel post-pickup.
+- Rejected with `INVALID_STATUS` for terminal states (`COMPLETED`, `CANCELLED`).
+
+The post-pickup lock closes the shipper+driver collusion path where a "cancel" after
+delivery could be used to refund Loada's commission.
 
 **Response**
 ```json
@@ -226,14 +268,22 @@ tonnes=10
 ## Bids
 
 ### POST /bids
-Place a bid on a job. Driver only.
+Place a bid on a job. Driver only. Reserves the commission from the driver's wallet
+inside the same transaction as the bid create.
 
-**Business rules enforced:**
-1. Driver subscription must be ACTIVE
-2. Driver documents must be APPROVED
+**Business rules enforced (in order):**
+1. Driver documents must be APPROVED
+2. Driver cannot bid on their own job (`SELF_TRADE_FORBIDDEN`) — prevents BOTH-role users from posting and self-accepting
 3. Driver `capacityTonnes` ≥ `job.requiredTonnes`
-4. Driver cannot have more than 3 active bids simultaneously
-5. Job `biddingExpiresAt` must not have passed
+4. Driver has no other active job (already `MATCHED`..`IN_TRANSIT`)
+5. Driver has fewer than `max_active_bids_per_driver` (default 3) active bids
+6. Driver hasn't already bid on this job (no duplicate PENDING/COUNTERED bid)
+7. Job `biddingExpiresAt` must not have passed, and `status` ∈ {POSTED, BIDDING, RADIUS_EXPANDED}
+8. Driver `wallet.balance` ≥ commission (commission = `loada_commission_pct × offeredPrice`)
+
+The commission moves from `balance` to `reservedBalance` atomically with the bid create;
+it's released (back to balance) on bid reject / expire / pre-pickup job cancel, and
+deducted (as Loada revenue) on `confirmDelivery` or by the `auto-settle` worker.
 
 **Auth** required (DRIVER role)
 
@@ -244,8 +294,19 @@ Place a bid on a job. Driver only.
 
 **Response** `201`
 ```json
-{ "data": { "bid": { "id": "...", "status": "PENDING", ... } } }
+{ "data": { "bid": { "id": "...", "status": "PENDING", "commissionAmount": "58.50", ... } } }
 ```
+
+**Errors**
+- `SELF_TRADE_FORBIDDEN` (400)
+- `DOCUMENTS_NOT_APPROVED` (403)
+- `INSUFFICIENT_CAPACITY` (400)
+- `ACTIVE_JOB_IN_PROGRESS` (400)
+- `MAX_BIDS_REACHED` (400)
+- `DUPLICATE_BID` (400)
+- `BIDDING_EXPIRED` (400)
+- `JOB_NOT_ACCEPTING_BIDS` (400)
+- `INSUFFICIENT_WALLET_BALANCE` (402) — includes `requiredAmount` and `currentBalance` on the error object
 
 ---
 
@@ -289,23 +350,46 @@ Counter a bid with a new price.
 ## Deliveries
 
 ### POST /deliveries/:jobId/pickup
-Confirm cargo has been loaded. Job must be in PICKUP_ARRIVED status.
-Transitions job to LOADED. Stores pickup photo URL (S3 key).
+Confirm cargo has been loaded. Job must be in `PICKUP_ARRIVED` status. Transitions the
+job directly to `IN_TRANSIT` (the `LOADED` intermediate state is skipped — see
+`docs/DECISIONS.md` "PATCH /jobs/:jobId/status").
 
 **Auth** required (DRIVER role, must be matched driver)
+
+**Server-side GPS gate:** The driver's `DriverProfile.lastLocation*` must be within
+`delivery_gps_tolerance_km` (default 0.5) of the job's `originLat/Lng`, and the fix
+must be < 30 minutes old. Client-supplied `lat`/`lng` in the body are stored on the
+delivery row but **are not used for verification** — a malicious client could spoof
+any coordinate. The location heartbeat on the `/location` socket is the source of truth.
 
 **Body**
 ```json
 { "photoUri": "delivery/uuid-pickup.jpg", "lat": -17.9318, "lng": 31.0928, "discrepancyNote": "optional" }
 ```
 
+**Errors**
+- `INVALID_STATUS` (400) — job not in PICKUP_ARRIVED
+- `FORBIDDEN` (403) — caller is not the matched driver
+- `GPS_UNAVAILABLE` (400) — no recent location heartbeat (turn on GPS)
+- `GPS_TOO_FAR` (400) — driver is outside the proximity tolerance; error object carries `distanceKm` and `toleranceKm`
+
 ---
 
 ### POST /deliveries/:jobId/confirm
-Confirm delivery. Job must be IN_TRANSIT.
-Transitions job to DELIVERED. Stores delivery photo, recipient name, optional signature.
+Confirm delivery. Job must be `IN_TRANSIT`. Transitions to `DELIVERED`, persists proof
+of delivery, and **settles the commission** — moves the bid's `commissionAmount` from
+the driver's `reservedBalance` to Loada revenue (`WalletTransaction.type = COMMISSION_DEDUCT`).
 
 **Auth** required (DRIVER role, must be matched driver)
+
+**Server-side GPS gate:** Same shape as `/pickup` but checked against `job.destLat/Lng`.
+See errors below.
+
+**Commission fallback:** If the bid's stored `commissionAmount` is `null` (legacy bid,
+admin-injected bid), the server recomputes from `loada_commission_pct × offeredPrice`
+and logs a warning instead of silently skipping. If the reserved balance doesn't cover
+the full charge (commission % changed mid-trip, etc.), the shortfall is pulled from
+the driver's available `balance` and the wallet transaction note is annotated.
 
 **Body**
 ```json
@@ -317,6 +401,12 @@ Transitions job to DELIVERED. Stores delivery photo, recipient name, optional si
   "lng": 28.58
 }
 ```
+
+**Errors**
+- `INVALID_STATUS` (400) — job not IN_TRANSIT
+- `FORBIDDEN` (403) — caller is not the matched driver
+- `GPS_UNAVAILABLE` (400)
+- `GPS_TOO_FAR` (400)
 
 ---
 
@@ -346,13 +436,32 @@ Get proof of delivery. Returns S3 presigned download URLs (1 hour TTL).
 ## Messages
 
 ### POST /messages
-Send a message in a job's chat thread.
+Send a message in a job's chat thread. The server soft-moderates every outgoing message
+against patterns for phone numbers, contact handles (WhatsApp, Telegram, email), and
+collusion phrases ("off-platform", "cash only", "cancel and re-post directly", …).
+Hits are stored on `Message.flaggedReason` (comma-separated pattern names) and surfaced
+to admin via `/v1/admin/audit/flagged-messages`. **Messages are never blocked** — the
+flag is informational only.
 
 **Auth** required
 
 **Body**
 ```json
 { "jobId": "job-uuid", "content": "Hi, any issues?", "mediaUrl": null, "mediaType": null }
+```
+
+**Response** `201`
+```json
+{
+  "data": {
+    "message": {
+      "id": "...",
+      "content": "Hi, any issues?",
+      "flaggedReason": null,
+      "createdAt": "..."
+    }
+  }
+}
 ```
 
 ---
@@ -376,82 +485,138 @@ Mark a message as read.
 
 ---
 
-## Subscriptions
+## Wallet
 
-### POST /subscriptions
-Create a subscription and initiate Paynow payment.
+Loada uses a **pay-per-use commission model** instead of subscriptions. Drivers fund a
+wallet via Paynow, the commission is reserved on each bid, and deducted on delivery.
+See `CLAUDE.md` "Trust & Safety" for the integrity controls.
+
+### GET /wallet/me
+Get the driver's current wallet balance.
+
+**Auth** required (DRIVER role)
+
+**Response**
+```json
+{
+  "data": {
+    "balance": 42.50,
+    "reservedBalance": 12.00,
+    "commissionPct": 15
+  }
+}
+```
+- `balance` — available to spend (cover commission reservations on new bids)
+- `reservedBalance` — locked against active PENDING/COUNTERED/ACCEPTED bids
+- `commissionPct` — current value of `loada_commission_pct` so the bid screen can preview the fee
+
+---
+
+### POST /wallet/deposit
+Initiate a Paynow wallet top-up. Returns a `pollUrl` that the BullMQ `paynow-poll` worker
+hits every `paynow_poll_interval_seconds`; on `PAID` the driver's `balance` is credited
+and a `wallet:balance_updated` event is broadcast on the `/jobs` socket.
 
 **Auth** required (DRIVER role)
 
 **Body**
 ```json
-{
-  "plan": "MONTHLY",
-  "method": "ecocash",
-  "phone": "+263771234567",
-  "email": "optional@example.com"
-}
+{ "amount": 25, "method": "ecocash", "phone": "+263771234567" }
 ```
-`plan` values: `WEEKLY | MONTHLY | ANNUAL`
-`method` values: `ecocash | onemoney | vmc`
-`phone` required for `ecocash` and `onemoney`. `email` optional for `vmc` (receipt).
+- `method` values: `ecocash | onemoney | vmc`
+- `phone` required for `ecocash` and `onemoney` (STK push). Optional for `vmc` (card flow)
+- `amount` must be ≥ `min_deposit_usd` (default 10) — otherwise `BELOW_MIN_DEPOSIT`
 
 **Response** `201`
 ```json
 {
   "data": {
-    "subscription": { "id": "...", "status": "TRIAL", "plan": "MONTHLY", ... },
+    "transactionId": "...",
     "pollUrl": "https://www.paynow.co.zw/Interface/CheckPayment/?...",
     "redirectUrl": "https://www.paynow.co.zw/Payment/..."
   }
 }
 ```
-The subscription starts as `TRIAL`. A BullMQ worker polls the Paynow `pollUrl` every 10s.
-Once payment is confirmed, status transitions to `ACTIVE` and an FCM push + SMS is sent.
-The mobile client polls `GET /subscriptions/me` independently to detect activation.
+
+The mobile client opens `redirectUrl` for the card flow, or shows a "Confirm on your phone"
+state and waits for the socket event for EcoCash/OneMoney. There's no need to poll the
+API — the socket pushes the balance change.
 
 ---
 
-### GET /subscriptions/me
-Get the current driver's subscription.
-
-**Auth** required (DRIVER role)
-
-**Response**
-```json
-{
-  "data": {
-    "subscription": {
-      "plan": "MONTHLY",
-      "status": "ACTIVE",
-      "currentPeriodEnd": "2026-06-21T09:56:47.393Z"
-    }
-  }
-}
-```
-
----
-
-### PATCH /subscriptions/:id/cancel
-Cancel a subscription (downgrades at period end).
-
-**Auth** required (DRIVER role)
-
----
-
-### GET /subscriptions/upload-url
-Get a presigned S3 URL for uploading a driver document.
+### GET /wallet/transactions
+Paginated history of wallet movements (deposits, reservations, releases, deductions, refunds).
 
 **Auth** required (DRIVER role)
 
 **Query**
 ```
-fileType=image/jpeg&fileSize=1048576
+limit=20
 ```
 
 **Response**
 ```json
-{ "data": { "uploadUrl": "https://s3.amazonaws.com/...", "key": "driver-docs/uuid.jpg" } }
+{
+  "data": {
+    "transactions": [
+      {
+        "id": "...",
+        "type": "COMMISSION_DEDUCT",
+        "amount": "8.55",
+        "bidId": "...",
+        "jobId": "...",
+        "note": "Loada platform fee",
+        "status": "PAID",
+        "createdAt": "..."
+      }
+    ]
+  }
+}
+```
+`type` values: `DEPOSIT | COMMISSION_RESERVE | COMMISSION_RELEASE | COMMISSION_DEDUCT | REFUND`
+
+---
+
+### POST /payments/result
+Paynow server-to-server webhook. Public (no JWT) — protected by the `hash` field, which
+is verified with the integration key before any state change. On a verified `PAID`
+status, the matching `WalletTransaction` is confirmed via `confirmDeposit`.
+
+This is the belt-and-suspenders path. The primary confirmation path is the poller worker.
+
+---
+
+### POST /uploads/presign
+Get a presigned S3 URL for uploading a file (driver documents, delivery photos, chat
+media). Upload size cap depends on the purpose (10MB photos, 20MB documents, 5MB voice).
+
+**Auth** required
+
+**Body**
+```json
+{ "purpose": "delivery", "mimeType": "image/jpeg" }
+```
+`purpose` values: `driver-docs | pickup | delivery | profile | chat`
+
+**Response**
+```json
+{ "data": { "presignedUrl": "https://s3.amazonaws.com/...", "s3Key": "delivery/uuid.jpg" } }
+```
+
+### POST /uploads/confirm
+Acknowledge a completed S3 upload. Returns a short-lived presigned download URL for
+immediate in-app preview. Persist the `s3Key`, **not** the URL — URLs expire in 1 hour.
+
+**Auth** required
+
+**Body**
+```json
+{ "s3Key": "delivery/uuid.jpg" }
+```
+
+**Response**
+```json
+{ "data": { "s3Key": "delivery/uuid.jpg", "url": "https://s3.amazonaws.com/..." } }
 ```
 
 ---
@@ -503,9 +668,37 @@ userId=user-uuid
 ## Drivers
 
 ### GET /drivers/me
-Get the authenticated driver's full profile including subscription.
+Get the authenticated driver's full profile, including freshly resolved S3 URLs for
+every document and photo.
 
 **Auth** required (DRIVER role)
+
+**Response**
+```json
+{
+  "data": {
+    "driver": {
+      "id": "...",
+      "truckType": "TRUCK",
+      "capacityTonnes": 10,
+      "truckMake": "Isuzu",
+      "truckModel": "NQR",
+      "truckYear": 2018,
+      "truckRegistration": "AAA-1234",
+      "truckPhotoUrl": "https://s3.amazonaws.com/...",
+      "licenceUrl": "https://s3.amazonaws.com/...",
+      "documentStatus": "APPROVED",
+      "isOnline": true,
+      "user": { "id": "...", "name": "...", "phone": "+263...", "email": null, "profilePhotoUrl": null }
+    },
+    "documents": {
+      "licenceUrl": "https://...",
+      "registrationUrl": "https://...",
+      "status": "APPROVED"
+    }
+  }
+}
+```
 
 ---
 
@@ -517,9 +710,11 @@ Update driver profile fields (truck details, document URLs).
 ---
 
 ### PATCH /drivers/me/online
-Set driver online and update GPS location. Adds driver to Redis geo index.
+Set driver online and update GPS location. Adds driver to Redis geo index. No
+subscription gate — going online just means the driver wants to receive load
+notifications. Eligibility to actually bid is enforced at `POST /bids`.
 
-**Auth** required (DRIVER role, ACTIVE subscription)
+**Auth** required (DRIVER role)
 
 **Body**
 ```json
@@ -551,31 +746,69 @@ period=week   # or: month | year
   "data": {
     "earnings": {
       "totalEarned": 1030,
+      "totalCommissionPaid": 154.50,
+      "netEarned": 875.50,
       "jobsCompleted": 2,
       "averagePerJob": 515,
       "trendPercent": 12.5,
       "bestDay": { "date": "2026-05-22", "dayOfWeek": "Fri", "earned": 1030, "jobs": 2 },
-      "byDay": [ { "date": "2026-05-22", "dayOfWeek": "Fri", "earned": 1030, "jobs": 2 } ],
-      "subscriptionCost": 28,
-      "netEarned": 1002
+      "byDay": [
+        { "date": "2026-05-22", "dayOfWeek": "Fri", "earned": 1030, "commissionPaid": 154.50, "jobs": 2 }
+      ],
+      "walletBalance": 42.50
     }
+  }
+}
+```
+`netEarned = totalEarned − totalCommissionPaid` (the commission is the only Loada cut —
+there are no subscription costs in this model).
+
+---
+
+## Notifications
+
+Notifications are now persisted in PostgreSQL alongside the FCM push so the in-app
+notifications screen has a real history. `Notification.userId` always stores `User.id`
+(resolved server-side from whichever profile triggered the event). The BullMQ payload
+field used to dispatch a notification is `targetId` — which is `DriverProfile.id` for
+`type: "driver"` events and `ShipperProfile.id` for `type: "shipper"` events. See
+`apps/api/src/workers/notification.worker.ts` for the discriminated union.
+
+### GET /notifications
+Latest 50 notifications for the authenticated user, newest first.
+
+**Auth** required
+
+**Response**
+```json
+{
+  "data": {
+    "notifications": [
+      {
+        "id": "...",
+        "type": "match_confirmed",
+        "title": "You got the load!",
+        "body": "...",
+        "jobId": "...",
+        "isRead": false,
+        "createdAt": "..."
+      }
+    ]
   }
 }
 ```
 
 ---
 
-## Notifications
-
-### GET /notifications
-Returns `[]` for MVP. Push notifications are FCM-only with no persistent inbox.
+### PATCH /notifications/:id/read
+Mark a specific notification as read.
 
 **Auth** required
 
 ---
 
-### PATCH /notifications/:id/read
-Mark a notification read (no-op for MVP).
+### PATCH /notifications/read-all
+Mark every unread notification for the authenticated user as read.
 
 **Auth** required
 
@@ -623,16 +856,47 @@ Response: `{ token, username }`
 
 ### GET /v1/admin/stats
 Returns platform dashboard numbers.
-Response: `{ stats: { totalUsers, totalDrivers, totalShippers, activeSubscriptions, totalJobs, activeJobs, completedJobsToday, totalRevenue, pendingDocuments } }`
+Response:
+```json
+{
+  "stats": {
+    "totalUsers": 0,
+    "totalDrivers": 0,
+    "totalShippers": 0,
+    "onlineDrivers": 0,
+    "onlineShippers": 0,
+    "totalJobs": 0,
+    "activeJobs": 0,
+    "completedJobsToday": 0,
+    "pendingDocuments": 0,
+    "totalWalletFunds": 0,
+    "totalCommissionCollected": 0,
+    "commissionThisMonth": 0
+  }
+}
+```
+- `onlineDrivers` — `DriverProfile.isOnline = true`
+- `onlineShippers` — count of shippers holding a live `/jobs` socket connection in the last 60s (tracked in Redis ZSET `loada:presence:shippers`)
+- `totalWalletFunds` — `sum(balance + reservedBalance)` across all driver wallets
+- `totalCommissionCollected` — all-time `COMMISSION_DEDUCT` total
+- `commissionThisMonth` — `COMMISSION_DEDUCT` total since the 1st of the current month
+
+### GET /v1/admin/analytics
+Time-series for the Overview charts. Query: `from` (ISO datetime), `to` (ISO datetime),
+`granularity` (`day` | `week` | `month`). Returns jobs created/completed per period,
+commission revenue per period, new users per period, plus current jobs-by-status and
+driver-wallet-balance bands.
 
 ### GET /v1/admin/config
-Returns all 22 config keys with their current values, labels, groups, and last-updated metadata.
+Returns every config key with its current value, label, group, and last-updated metadata.
+Groups: `pricing | bidding | matching | trust | auth | payments | market`.
 
 ### PATCH /v1/admin/config
 ```json
-{ "subscription_price_weekly": "9", "bid_ttl_seconds": "360" }
+{ "loada_commission_pct": "12", "delivery_gps_tolerance_km": "0.75" }
 ```
-Accepts any subset of ConfigKey keys. Invalidates Redis cache for updated keys.
+Accepts any subset of `ConfigKey` keys. Invalidates the Redis cache for updated keys
+(changes take effect within ~60s).
 
 ### GET /v1/admin/users
 Query: `page`, `limit`, `role` (SHIPPER|DRIVER|BOTH), `search`, `suspended` (boolean)
@@ -645,32 +909,142 @@ Query: `page`, `limit`, `role` (SHIPPER|DRIVER|BOTH), `search`, `suspended` (boo
 ### PATCH /v1/admin/users/:userId/unsuspend
 No body required.
 
+### POST /v1/admin/users/bulk-suspend
+```json
+{ "ids": ["..."], "reason": "..." }
+```
+
+### POST /v1/admin/users/bulk-unsuspend
+```json
+{ "ids": ["..."] }
+```
+
 ### GET /v1/admin/drivers
-Query: `page`, `limit`, `documentStatus` (PENDING|UNDER_REVIEW|APPROVED|REJECTED|EXPIRED)
+Query: `page`, `limit`, `documentStatus` (PENDING|UNDER_REVIEW|APPROVED|REJECTED|EXPIRED).
+Response includes each driver's `wallet` (balance, reservedBalance) for the admin docs
+review modal.
 
 ### PATCH /v1/admin/drivers/:driverId/approve-docs
-No body required. Sets `documentStatus = APPROVED`.
+No body. Sets `documentStatus = APPROVED`.
 
 ### PATCH /v1/admin/drivers/:driverId/reject-docs
 ```json
 { "reason": "Licence photo unreadable" }
 ```
-Sets `documentStatus = REJECTED`.
+
+### POST /v1/admin/drivers/bulk-approve-docs
+```json
+{ "ids": ["..."] }
+```
+
+### POST /v1/admin/drivers/bulk-reject-docs
+```json
+{ "ids": ["..."], "reason": "..." }
+```
 
 ### GET /v1/admin/jobs
-Query: `page`, `limit`, `status`
+Query: `page`, `limit`, `status`. Each row includes `cargoDescription`,
+`specialRequirements`, `_count.bids`, `_count.messages`, the accepted bid, and the
+delivery row — enough for the in-list cargo column and the View action.
+
+### GET /v1/admin/jobs/:jobId
+Full job detail for the admin View modal — every bid (not just accepted), the delivery
+row, the last 50 messages with senders, and the ratings. Used by the Trust & Audit page
+when drilling into a flagged conversation.
 
 ### PATCH /v1/admin/jobs/:jobId/cancel
 ```json
 { "reason": "Admin forced cancellation" }
 ```
-Cannot cancel jobs already in COMPLETED or CANCELLED state.
+Force-cancels the job, releases reserved commissions for losing bids, and **deducts**
+the accepted bid's commission if the cancel happens post-pickup (see CLAUDE.md
+"Trust & Safety" for the refund matrix). Notifies both shipper and driver.
 
-### GET /v1/admin/subscriptions
-Query: `page`, `limit`, `status` (TRIAL|ACTIVE|EXPIRED|CANCELLED)
-
-### PATCH /v1/admin/subscriptions/:id/override
+### POST /v1/admin/jobs/bulk-cancel
 ```json
-{ "status": "ACTIVE", "currentPeriodEnd": "2026-06-22T00:00:00.000Z" }
+{ "ids": ["..."], "reason": "..." }
 ```
-`currentPeriodEnd` is optional.
+Per-job cancellation with the same cleanup as the single endpoint. Already-terminal
+rows are silently skipped rather than failing the whole batch.
+
+### GET /v1/admin/wallets
+Driver wallet list with balance, reserved, recent transactions, and a global stats
+strip (totalHeld, totalReserved, zeroCount, driversCount, avg). Query: `page`, `limit`,
+`search` (driver name).
+
+### PATCH /v1/admin/wallets/:driverId/adjust
+```json
+{ "amount": 25, "note": "Manual refund for cancelled job J-2841" }
+```
+Positive amounts credit, negative amounts debit. Refuses any adjustment that would
+leave a negative balance. Writes a `WalletTransaction` with `type = DEPOSIT` or `REFUND`
+and a note tagged with the admin username.
+
+---
+
+## Trust & Safety audit
+
+### GET /v1/admin/audit/flagged-messages
+Paginated feed of messages where `Message.flaggedReason != null`. Query: `page`, `limit`.
+
+**Response**
+```json
+{
+  "data": {
+    "messages": [
+      {
+        "id": "...",
+        "content": "Just whatsapp me on 0771234567 and we'll skip the platform fee",
+        "flaggedReason": "phone:zw-local,contact:whatsapp,collusion:avoid-fee",
+        "createdAt": "...",
+        "sender": { "id": "...", "name": "...", "phone": "+263...", "role": "DRIVER" },
+        "job":    { "id": "...", "originAddress": "...", "destAddress": "...", "status": "BIDDING", "shipperId": "..." }
+      }
+    ],
+    "total": 12,
+    "page": 1,
+    "limit": 50
+  }
+}
+```
+
+The flag string is a comma-separated list of the moderation patterns that matched
+(phone-number variants, contact-handle variants, collusion phrases). Soft signal —
+admin decides whether to suspend or ignore.
+
+### GET /v1/admin/audit/low-bids
+Accepted bids priced below `low_bid_alert_pct` (default 60%) of the per-km × tonnage
+market estimate. Used to detect off-platform price negotiation (low in-app bid, high
+cash settlement). Query: `page`, `limit`.
+
+**Response**
+```json
+{
+  "data": {
+    "jobs": [
+      {
+        "id": "...",
+        "originAddress": "...",
+        "destAddress": "...",
+        "requiredTonnes": 10,
+        "askingPrice": "420.00",
+        "bidPrice": "190.00",
+        "currency": "USD",
+        "status": "IN_TRANSIT",
+        "createdAt": "...",
+        "shipperName": "...",
+        "driverName": "...",
+        "distanceKm": 263,
+        "estimatedMarket": 1578,
+        "ratioPct": 12
+      }
+    ],
+    "threshold": 60,
+    "page": 1,
+    "limit": 50
+  }
+}
+```
+
+`ratioPct` is `(bidPrice / estimatedMarket) × 100`. Anything below `threshold` is in
+the result set.

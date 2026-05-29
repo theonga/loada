@@ -12,7 +12,7 @@ import { TextInput } from "@components/ui/TextInput";
 import { Text } from "@components/ui/Text";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   useColors,
   ColorPalette,
@@ -50,6 +50,7 @@ const PAYMENT_METHODS = [
 
 export default function WalletScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
   const { balance, commissionPct, setWallet } = useWalletStore();
@@ -311,7 +312,7 @@ export default function WalletScreen() {
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         <ScrollView
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.section * 2 }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >

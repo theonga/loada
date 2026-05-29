@@ -3,7 +3,7 @@ import { View, Pressable, Switch, ScrollView, StyleSheet } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { useAuthStore } from '@store/auth.store';
 import { showConfirm } from '@components/ui/AppAlert';
@@ -12,6 +12,7 @@ const LANGUAGES = ['English', 'Shona', 'Ndebele'];
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { logout } = useAuthStore();
   const [pushEnabled, setPushEnabled] = useState(true);
   const [smsEnabled, setSmsEnabled] = useState(true);
@@ -29,7 +30,7 @@ export default function SettingsScreen() {
         <View style={{ width: 44 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + Spacing.section * 2 }]}>
         <Text style={styles.sectionTitle}>NOTIFICATIONS</Text>
         <View style={styles.card}>
           <View style={styles.settingRow}>
