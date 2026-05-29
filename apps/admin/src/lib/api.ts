@@ -229,7 +229,28 @@ interface PaginatedUsers { users: UserRecord[]; total: number; page: number; lim
 interface PaginatedDrivers { drivers: DriverRecord[]; total: number; page: number; limit: number }
 interface PaginatedJobs { jobs: JobRecord[]; total: number; page: number; limit: number }
 interface PaginatedSubscriptions { subscriptions: SubscriptionRecord[]; total: number; page: number; limit: number }
-interface PaginatedWallets { wallets: WalletRecord[]; total: number; page: number; limit: number }
+export interface WalletStats {
+  /** balance + reservedBalance summed across every wallet — matches stats.totalWalletFunds */
+  totalHeld:      number;
+  /** sum of reservedBalance across every wallet */
+  totalReserved:  number;
+  /** sum of balance (i.e. available to spend) across every wallet */
+  totalAvailable: number;
+  /** count of wallets with $0 balance AND $0 reserved (truly empty) */
+  zeroCount:      number;
+  /** total number of driver wallets */
+  driversCount:   number;
+  /** totalHeld / driversCount */
+  avg:            number;
+}
+
+interface PaginatedWallets {
+  wallets: WalletRecord[];
+  total:   number;
+  page:    number;
+  limit:   number;
+  stats:   WalletStats;
+}
 
 export interface AnalyticsQuery {
   from?:        string;

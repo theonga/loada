@@ -3,7 +3,7 @@ import { redis } from "@/lib/redis";
 import { bidExpiryQueue, radiusExpansionQueue, notificationQueue } from "@/lib/queues";
 import { getSocketServer } from "@/lib/socket";
 import { getConfigNum } from "@/lib/app-config";
-import { notifyDriver } from "./notification.service";
+import { notifyDriver, notifyShipper } from "./notification.service";
 import { releaseCommission } from "./wallet.service";
 import type { JobStatus, ShipperPaymentMethod, TruckType } from "@prisma/client";
 
@@ -152,6 +152,92 @@ export async function getJobById(jobId: string) {
   return job;
 }
 
+type CancelCtx =
+  | { actor: "shipper" }
+  | { actor: "admin"; adminUsername: string; reason: string };
+
+const ACTIVE_OR_BIDDING: JobStatus[] = [
+  "POSTED", "BIDDING", "RADIUS_EXPANDED",
+  "MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT",
+];
+
+/**
+ * Shared cleanup for any job cancellation:
+ *   - mark CANCELLED + reject every pending/countered/accepted bid
+ *   - clear the Redis bid-session cache key
+ *   - release reserved commissions back to each bidder's wallet
+ *   - notify the matched driver (if any) so their UI updates
+ *   - emit job:status_changed so live screens update
+ *
+ * Callers (shipper cancelJob, adminCancelJob) handle their own permission
+ * checks before invoking this.
+ */
+async function performJobCancellation(
+  job: {
+    id: string;
+    status: JobStatus;
+    shipperId: string;
+    shipper: { user: { name: string } };
+    bids: Array<{ id: string; driverId: string; commissionAmount: import("@prisma/client").Prisma.Decimal | null; status: import("@prisma/client").BidStatus }>;
+  },
+  ctx: CancelCtx,
+): Promise<void> {
+  if (["COMPLETED", "CANCELLED"].includes(job.status)) {
+    throw Object.assign(new Error("Cannot cancel a completed or already cancelled job"), {
+      statusCode: 400,
+      code: "INVALID_STATUS",
+    });
+  }
+
+  const wasMatched = (["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"] as JobStatus[]).includes(job.status);
+
+  await prisma.job.update({ where: { id: job.id }, data: { status: "CANCELLED" } });
+  await prisma.bid.updateMany({
+    where: { jobId: job.id, status: { in: ["PENDING", "COUNTERED", "ACCEPTED"] } },
+    data:  { status: "REJECTED" },
+  });
+  await redis.del(`loada:job:${job.id}:status`);
+
+  const releaseReason = ctx.actor === "admin"
+    ? `Job force-cancelled by admin (${ctx.adminUsername})`
+    : wasMatched
+      ? "Job cancelled by shipper after match"
+      : "Job cancelled by shipper";
+
+  // Fire-and-forget — wallet release failures shouldn't block the cancellation.
+  for (const bid of job.bids) {
+    if (bid.commissionAmount) {
+      releaseCommission(
+        bid.driverId,
+        bid.id,
+        parseFloat(bid.commissionAmount.toString()),
+        releaseReason,
+      ).catch(() => {});
+    }
+
+    if (wasMatched && bid.status === "ACCEPTED") {
+      const title = "Job cancelled";
+      const body = ctx.actor === "admin"
+        ? `An admin cancelled this job. Reason: ${ctx.reason}. Your reserved balance has been returned.`
+        : `${job.shipper.user.name} cancelled the job. Your reserved balance has been returned.`;
+      notifyDriver(bid.driverId, title, body, { jobId: job.id }).catch(() => {});
+    }
+  }
+
+  // Tell the shipper too on admin cancellations — they didn't initiate it.
+  if (ctx.actor === "admin") {
+    notifyShipper(
+      job.shipperId,
+      "Your job was cancelled",
+      `An admin force-cancelled your job. Reason: ${ctx.reason}`,
+      { jobId: job.id },
+    ).catch(() => {});
+  }
+
+  const { jobsNs } = getSocketServer();
+  jobsNs.to(`job:${job.id}`).emit("job:status_changed", { jobId: job.id, status: "CANCELLED" });
+}
+
 export async function cancelJob(jobId: string, userId: string) {
   const job = await prisma.job.findUnique({
     where: { id: jobId },
@@ -167,46 +253,64 @@ export async function cancelJob(jobId: string, userId: string) {
   if (job.shipper.userId !== userId) {
     throw Object.assign(new Error("Forbidden"), { statusCode: 403, code: "FORBIDDEN" });
   }
-  if (["COMPLETED", "CANCELLED"].includes(job.status)) {
-    throw Object.assign(new Error("Cannot cancel a completed or already cancelled job"), {
-      statusCode: 400,
-      code: "INVALID_STATUS",
-    });
-  }
-
-  const wasMatched = ["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"].includes(job.status);
-
-  await prisma.job.update({ where: { id: jobId }, data: { status: "CANCELLED" } });
-  await prisma.bid.updateMany({
-    where: { jobId, status: { in: ["PENDING", "COUNTERED", "ACCEPTED"] } },
-    data: { status: "REJECTED" },
-  });
-  await redis.del(`loada:job:${jobId}:status`);
-
-  // Release reserved commissions and notify all affected drivers
-  for (const bid of job.bids) {
-    if (bid.commissionAmount) {
-      releaseCommission(
-        bid.driverId,
-        bid.id,
-        parseFloat(bid.commissionAmount.toString()),
-        wasMatched && bid.status === "ACCEPTED" ? "Job cancelled by shipper after match" : "Job cancelled by shipper",
-      ).catch(() => {});
-    }
-
-    if (wasMatched && bid.status === "ACCEPTED") {
-      notifyDriver(
-        bid.driverId,
-        "Job cancelled",
-        `${job.shipper.user.name} cancelled the job. Your reserved balance has been returned.`,
-        { jobId },
-      ).catch(() => {});
-    }
-  }
-
-  const { jobsNs } = getSocketServer();
-  jobsNs.to(`job:${jobId}`).emit("job:status_changed", { jobId, status: "CANCELLED" });
+  await performJobCancellation(job, { actor: "shipper" });
 }
+
+/**
+ * Admin force-cancel — bypasses the shipper-ownership check but runs the same
+ * cleanup as a shipper cancel: reserved commissions are released, bids are
+ * rejected, both parties are notified, the live socket event fires.
+ */
+export async function adminCancelJob(
+  jobId: string,
+  adminUsername: string,
+  reason: string,
+): Promise<void> {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      shipper: { include: { user: true } },
+      bids: {
+        where: { status: { in: ["PENDING", "COUNTERED", "ACCEPTED"] } },
+        select: { id: true, driverId: true, commissionAmount: true, status: true },
+      },
+    },
+  });
+  if (!job) throw Object.assign(new Error("Job not found"), { statusCode: 404, code: "JOB_NOT_FOUND" });
+  await performJobCancellation(job, { actor: "admin", adminUsername, reason });
+}
+
+/**
+ * Bulk variant — runs each cancellation independently so a single bad id
+ * doesn't take down the rest of the batch. Returns counts so the admin UI
+ * can report partial success.
+ */
+export async function adminBulkCancelJobs(
+  jobIds: string[],
+  adminUsername: string,
+  reason: string,
+): Promise<{ cancelled: number; skipped: number }> {
+  let cancelled = 0;
+  let skipped = 0;
+  for (const jobId of jobIds) {
+    try {
+      await adminCancelJob(jobId, adminUsername, reason);
+      cancelled++;
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      // Already-terminal jobs and missing rows are expected — don't blow up.
+      if (code === "INVALID_STATUS" || code === "JOB_NOT_FOUND") {
+        skipped++;
+      } else {
+        throw err;
+      }
+    }
+  }
+  return { cancelled, skipped };
+}
+
+// Keep the active-status constant export-friendly for routes that need it.
+void ACTIVE_OR_BIDDING;
 
 export async function getShipperJobs(shipperId: string, status?: string) {
   return prisma.job.findMany({

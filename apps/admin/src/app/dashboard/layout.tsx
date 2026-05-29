@@ -3,99 +3,59 @@ import { useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 
-// ── Icons ─────────────────────────────────────────────────────────────────────
+// ── Sidebar icons (Lucide-style, 1.8 stroke) ─────────────────────────
 
-function IconGrid() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="2" width="7" height="7" rx="1.5" />
-      <rect x="11" y="2" width="7" height="7" rx="1.5" />
-      <rect x="2" y="11" width="7" height="7" rx="1.5" />
-      <rect x="11" y="11" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
+type IconProps = { size?: number };
+const stroke = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
-function IconUsers() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="8" cy="6" r="3" />
-      <path d="M2 18c0-3.314 2.686-6 6-6s6 2.686 6 6" />
-      <circle cx="15" cy="6.5" r="2.5" />
-      <path d="M14 14c1.5-.65 2.5.15 4 1" />
-    </svg>
-  );
-}
+function IconHome    ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/></svg>; }
+function IconUsers   ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.5 3-6 6.5-6s6.5 2.5 6.5 6"/><circle cx="17" cy="9" r="2.6"/><path d="M21.5 19c0-2.6-2-4.6-4.5-4.6"/></svg>; }
+function IconTruck   ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M3 7h11v9H3z"/><path d="M14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/></svg>; }
+function IconPackage ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M3.3 7.3 12 12l8.7-4.7"/><path d="M12 12v9"/><path d="M3 7.5v9L12 21l9-4.5v-9L12 3z"/></svg>; }
+function IconWallet  ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M3 7v10a2 2 0 0 0 2 2h15v-4"/><path d="M3 7a2 2 0 0 1 2-2h13v4"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4z"/></svg>; }
+function IconSliders ({ size = 16 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M4 6h10"/><path d="M18 6h2"/><circle cx="16" cy="6" r="2"/><path d="M4 12h4"/><path d="M12 12h8"/><circle cx="10" cy="12" r="2"/><path d="M4 18h12"/><path d="M20 18h0"/><circle cx="18" cy="18" r="2"/></svg>; }
+function IconLogout  ({ size = 14 }: IconProps) { return <svg width={size} height={size} viewBox="0 0 24 24" {...stroke}><path d="M14 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-2"/><path d="M10 12h10"/><path d="m17 9 3 3-3 3"/></svg>; }
 
-function IconTruck() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="1" y="4" width="11" height="9" rx="1.5" />
-      <path d="M12 7.5h3.5L18 11v4h-6V7.5z" />
-      <circle cx="4.5" cy="14" r="1.5" />
-      <circle cx="14" cy="14" r="1.5" />
-    </svg>
-  );
-}
+// ── Nav structure ────────────────────────────────────────────────────
 
-function IconClipboard() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="4" y="3" width="12" height="14" rx="2" />
-      <path d="M8 3a2 2 0 012-2h0a2 2 0 012 2" />
-      <path d="M7 9h6M7 13h4" />
-    </svg>
-  );
-}
+type NavItem = {
+  href: string;
+  label: string;
+  Icon: React.ComponentType<IconProps>;
+  match?: (path: string) => boolean;
+};
 
-function IconCard() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="1.5" y="4.5" width="17" height="11" rx="2" />
-      <path d="M1.5 9h17" />
-      <path d="M5 13h4" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function IconSliders() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 5h14M3 10h14M3 15h14" />
-      <circle cx="8" cy="5" r="2" />
-      <circle cx="14" cy="10" r="2" />
-      <circle cx="7" cy="15" r="2" />
-    </svg>
-  );
-}
-
-// ── Nav structure ─────────────────────────────────────────────────────────────
-
-const NAV_GROUPS = [
+const NAV: { label: string; items: NavItem[] }[] = [
   {
     label: "Operations",
     items: [
-      { href: "/dashboard",               label: "Overview",       icon: <IconGrid /> },
-      { href: "/dashboard/users",         label: "Users",          icon: <IconUsers /> },
-      { href: "/dashboard/drivers",       label: "Drivers",        icon: <IconTruck /> },
-      { href: "/dashboard/jobs",          label: "Jobs",           icon: <IconClipboard /> },
+      { href: "/dashboard",         label: "Overview", Icon: IconHome,    match: (p) => p === "/dashboard" },
+      { href: "/dashboard/users",   label: "Users",    Icon: IconUsers },
+      { href: "/dashboard/drivers", label: "Drivers",  Icon: IconTruck },
+      { href: "/dashboard/jobs",    label: "Jobs",     Icon: IconPackage },
     ],
   },
   {
     label: "Platform",
     items: [
-      { href: "/dashboard/subscriptions", label: "Wallets",        icon: <IconCard /> },
-      { href: "/dashboard/config",        label: "Configuration",  icon: <IconSliders /> },
+      { href: "/dashboard/subscriptions", label: "Wallets",       Icon: IconWallet },
+      { href: "/dashboard/config",        label: "Configuration", Icon: IconSliders },
     ],
   },
 ];
 
-// ── Layout ────────────────────────────────────────────────────────────────────
+function isActive(path: string, item: NavItem): boolean {
+  if (item.match) return item.match(path);
+  return path === item.href || path.startsWith(item.href + "/");
+}
+
+// ── Layout ───────────────────────────────────────────────────────────
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
   const [username, setUsername] = useState("");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("loada_admin_token");
@@ -103,8 +63,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try {
       const payload = JSON.parse(atob(token.split(".")[1]));
       setUsername(payload.username ?? "admin");
-    } catch { /* ignore */ }
+    } catch { /* ignore — token is opaque */ }
   }, [router]);
+
+  // Close the drawer on route change (mobile)
+  useEffect(() => { setMobileNavOpen(false); }, [pathname]);
 
   function logout() {
     localStorage.removeItem("loada_admin_token");
@@ -112,199 +75,97 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "var(--color-bg)" }}>
+    <div className="shell">
+      {/* Mobile chrome — only visible on narrow viewports */}
+      <button
+        type="button"
+        className="mobile-menu-btn"
+        aria-label="Open menu"
+        onClick={() => setMobileNavOpen(true)}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             strokeWidth="2" strokeLinecap="round">
+          <line x1="4" y1="7"  x2="20" y2="7"  />
+          <line x1="4" y1="12" x2="20" y2="12" />
+          <line x1="4" y1="17" x2="20" y2="17" />
+        </svg>
+      </button>
 
-      {/* ── Sidebar ───────────────────────────────────────────────────── */}
-      <aside style={{
-        width: 248,
-        flexShrink: 0,
-        display: "flex",
-        flexDirection: "column",
-        background: "var(--color-surface)",
-        borderRight: "1px solid var(--color-border)",
-        boxShadow: "8px 0 32px rgba(0,0,0,0.40)",
-        overflow: "hidden",
-        position: "relative",
-        zIndex: 1,
-      }}>
-
-        {/* Logo zone */}
-        <div style={{
-          height: 64,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "0 20px",
-          borderBottom: "1px solid var(--color-border)",
-          flexShrink: 0,
-        }}>
-          <div style={{
-            width: 34,
-            height: 34,
-            borderRadius: 10,
-            background: "#F5A623",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 800,
-            fontSize: 16,
-            color: "#000",
-            flexShrink: 0,
-            boxShadow: "0 0 0 1px rgba(245,166,35,0.3), 0 4px 12px rgba(245,166,35,0.20)",
-          }}>
-            L
-          </div>
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 15, color: "var(--color-text-primary)", letterSpacing: "-0.02em", lineHeight: 1.1 }}>
-              Loada
-            </div>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.09em", textTransform: "uppercase", color: "var(--color-text-muted)", marginTop: 3 }}>
-              Admin Console
-            </div>
-          </div>
+      <div className="mobile-brand">
+        <div className="logo-mark">L</div>
+        <div>
+          <div className="brand-name">Loada</div>
+          <div className="brand-sub">Admin Console</div>
         </div>
+      </div>
 
-        {/* Nav */}
-        <nav style={{ flex: 1, overflowY: "auto", padding: "16px 12px" }}>
-          {NAV_GROUPS.map((group, gi) => (
-            <div key={group.label} style={{ marginBottom: gi < NAV_GROUPS.length - 1 ? 28 : 0 }}>
-              {/* Section label */}
-              <div style={{
-                fontSize: 11,
-                fontWeight: 700,
-                letterSpacing: "0.10em",
-                textTransform: "uppercase",
-                color: "var(--color-text-muted)",
-                padding: "0 8px",
-                marginBottom: 8,
-              }}>
-                {group.label}
-              </div>
+      {mobileNavOpen && (
+        <div className="mobile-overlay" onClick={() => setMobileNavOpen(false)} />
+      )}
 
-              {/* Nav items */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {group.items.map((item) => {
-                  const active = item.href === "/dashboard"
-                    ? pathname === "/dashboard"
-                    : pathname.startsWith(item.href);
+      <div className={`sidebar-wrap ${mobileNavOpen ? "open" : ""}`}>
+        <aside className="sidebar">
+          <div className="brand">
+            <div className="logo-mark">L</div>
+            <div>
+              <div className="brand-name">Loada</div>
+              <div className="brand-sub">Admin Console</div>
+            </div>
+          </div>
 
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "10px 12px 10px 13px",
-                        borderRadius: 10,
-                        borderLeft: active
-                          ? "3px solid var(--color-accent)"
-                          : "3px solid transparent",
-                        background: active
-                          ? "rgba(79, 124, 255, 0.12)"
-                          : "transparent",
-                        color: active
-                          ? "var(--color-text-primary)"
-                          : "var(--color-text-secondary)",
-                        fontSize: 14,
-                        fontWeight: active ? 600 : 500,
-                        textDecoration: "none",
-                        transition: "background 0.15s, color 0.15s, border-color 0.15s",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!active) {
-                          (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
-                          (e.currentTarget as HTMLElement).style.color = "var(--color-text-primary)";
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!active) {
-                          (e.currentTarget as HTMLElement).style.background = "transparent";
-                          (e.currentTarget as HTMLElement).style.color = "var(--color-text-secondary)";
-                        }
-                      }}
-                    >
-                      <span style={{ flexShrink: 0, opacity: active ? 1 : 0.7 }}>{item.icon}</span>
-                      {item.label}
-                    </Link>
-                  );
-                })}
-              </div>
+          {NAV.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <div className="nav-group-label">{group.label}</div>
+              {group.items.map((item) => {
+                const active = isActive(pathname, item);
+                const { Icon } = item;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`nav-item${active ? " active" : ""}`}
+                  >
+                    <span className="nav-icon"><Icon size={16} /></span>
+                    <span>{item.label}</span>
+                  </Link>
+                );
+              })}
             </div>
           ))}
-        </nav>
 
-        {/* User zone */}
-        <div style={{
-          borderTop: "1px solid var(--color-border)",
-          padding: "16px 16px",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          flexShrink: 0,
-        }}>
-          {/* Avatar */}
-          <div style={{
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            background: "rgba(79,124,255,0.15)",
-            border: "1px solid rgba(79,124,255,0.30)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 12,
-            fontWeight: 700,
-            color: "var(--color-accent)",
-            flexShrink: 0,
-          }}>
-            {username[0]?.toUpperCase() ?? "A"}
-          </div>
-
-          {/* Name + role */}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {username || "admin"}
+          <div className="sidebar-foot">
+            <div className="avatar sm">{(username[0] ?? "A").toUpperCase()}</div>
+            <div className="who">
+              <div className="who-name">{username || "admin"}</div>
+              <div className="who-role">Admin</div>
             </div>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.07em", textTransform: "uppercase", color: "var(--color-text-muted)" }}>
-              Admin
-            </div>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Log out"
+              title="Log out"
+              onClick={logout}
+            >
+              <IconLogout size={14} />
+            </button>
           </div>
+        </aside>
 
-          {/* Logout */}
-          <button
-            onClick={logout}
-            title="Sign out"
-            style={{
-              width: 28,
-              height: 28,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 8,
-              color: "var(--color-text-muted)",
-              transition: "color 0.15s, background 0.15s",
-              flexShrink: 0,
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.color = "var(--color-danger)";
-              (e.currentTarget as HTMLElement).style.background = "rgba(248,113,113,0.10)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.color = "var(--color-text-muted)";
-              (e.currentTarget as HTMLElement).style.background = "transparent";
-            }}
-          >
-            <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13 4h4v12h-4M8 14l-4-4 4-4M4 10h9" />
-            </svg>
-          </button>
-        </div>
-      </aside>
+        <button
+          type="button"
+          className="mobile-close"
+          aria-label="Close menu"
+          onClick={() => setMobileNavOpen(false)}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round">
+            <line x1="6" y1="6"  x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6"  y2="18" />
+          </svg>
+        </button>
+      </div>
 
-      {/* ── Main content ──────────────────────────────────────────────── */}
-      <main style={{ flex: 1, overflowY: "auto", padding: "32px 40px 40px 28px" }}>
+      <main className="main" style={{ overflowY: "auto" }}>
         {children}
       </main>
     </div>

@@ -7,6 +7,7 @@ import { requireAdmin, getAdmin } from "@/middleware/admin-auth";
 import { getAllConfig, setConfig } from "@/lib/app-config";
 import type { ConfigKey } from "@/lib/app-config";
 import { resolveStoredFiles } from "@/lib/s3";
+import { adminCancelJob, adminBulkCancelJobs } from "@/services/job.service";
 
 export async function adminRoutes(app: FastifyInstance) {
   // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -280,21 +281,21 @@ export async function adminRoutes(app: FastifyInstance) {
     try {
       const { jobId } = req.params as { jobId: string };
       const { reason } = z.object({ reason: z.string().min(1) }).parse(req.body);
+      const admin = getAdmin(req);
 
-      const job = await prisma.job.findUnique({ where: { id: jobId } });
-      if (!job) return reply.status(404).send({ success: false, error: { code: "NOT_FOUND", message: "Job not found" } });
-      if (job.status === "COMPLETED" || job.status === "CANCELLED") {
-        return reply.status(400).send({ success: false, error: { code: "INVALID_STATUS", message: "Job cannot be cancelled in its current state" } });
-      }
+      // Routes through the shared cancellation helper so reserved commissions
+      // are released, pending bids are rejected, the driver + shipper are
+      // notified, and the live socket event fires — same as a shipper cancel.
+      await adminCancelJob(jobId, admin.username, reason);
 
-      void reason;
-      const updated = await prisma.job.update({ where: { id: jobId }, data: { status: "CANCELLED" } });
+      const updated = await prisma.job.findUnique({ where: { id: jobId } });
       return reply.send({ success: true, data: { job: updated } });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
       }
-      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
     }
   });
 
@@ -483,22 +484,19 @@ export async function adminRoutes(app: FastifyInstance) {
         ids:    z.array(z.string().uuid()).min(1),
         reason: z.string().min(1),
       }).parse(req.body);
+      const admin = getAdmin(req);
 
-      void reason;
-      const { count } = await prisma.job.updateMany({
-        where: {
-          id:     { in: ids },
-          status: { notIn: ["COMPLETED", "CANCELLED"] },
-        },
-        data: { status: "CANCELLED" },
-      });
+      // Per-job cancellation with the same cleanup as the single endpoint.
+      // Already-terminal jobs are skipped, not failed.
+      const { cancelled, skipped } = await adminBulkCancelJobs(ids, admin.username, reason);
 
-      return reply.send({ success: true, data: { updated: count } });
+      return reply.send({ success: true, data: { updated: cancelled, skipped } });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
       }
-      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+      const e = err as { statusCode?: number; code?: string; message: string };
+      return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
     }
   });
 
@@ -514,10 +512,14 @@ export async function adminRoutes(app: FastifyInstance) {
     const userWhere = query.search
       ? { name: { contains: query.search, mode: "insensitive" as const } }
       : undefined;
+    const where = userWhere ? { driver: { user: userWhere } } : {};
 
-    const [wallets, total] = await Promise.all([
+    // Stats are global (every wallet), not page-scoped, so the page's
+    // "Total funds held" matches the overview KPI exactly.
+    // Definition: balance + reservedBalance, identical to /admin/stats.
+    const [wallets, total, agg, zeroCount, driversCount] = await Promise.all([
       prisma.driverWallet.findMany({
-        where: userWhere ? { driver: { user: userWhere } } : {},
+        where,
         include: {
           driver: { include: { user: true } },
           transactions: { orderBy: { createdAt: "desc" }, take: 5 },
@@ -526,12 +528,34 @@ export async function adminRoutes(app: FastifyInstance) {
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
-      prisma.driverWallet.count({
-        where: userWhere ? { driver: { user: userWhere } } : {},
-      }),
+      prisma.driverWallet.count({ where }),
+      prisma.driverWallet.aggregate({ _sum: { balance: true, reservedBalance: true } }),
+      prisma.driverWallet.count({ where: { balance: 0, reservedBalance: 0 } }),
+      prisma.driverWallet.count(),
     ]);
 
-    return reply.send({ success: true, data: { wallets, total, page: query.page, limit: query.limit } });
+    const balanceSum  = Number(agg._sum.balance ?? 0);
+    const reservedSum = Number(agg._sum.reservedBalance ?? 0);
+    const totalHeld   = balanceSum + reservedSum;
+    const avg         = driversCount > 0 ? totalHeld / driversCount : 0;
+
+    return reply.send({
+      success: true,
+      data: {
+        wallets,
+        total,
+        page: query.page,
+        limit: query.limit,
+        stats: {
+          totalHeld,
+          totalReserved: reservedSum,
+          totalAvailable: balanceSum,
+          zeroCount,
+          driversCount,
+          avg,
+        },
+      },
+    });
   });
 
   app.patch("/wallets/:driverId/adjust", { preHandler: [requireAdmin] }, async (req, reply) => {

@@ -37,7 +37,14 @@ export async function buildApp() {
   }
 
   await app.register(helmet, { contentSecurityPolicy: false });
-  await app.register(cors, { origin: true, credentials: true });
+  // Without explicit `methods`, @fastify/cors only allows GET/HEAD/POST on
+  // preflight responses, which silently breaks every PATCH/PUT/DELETE call
+  // (admin cancel-job, approve-docs, suspend-user, adjust-wallet, …).
+  await app.register(cors, {
+    origin: true,
+    credentials: true,
+    methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  });
   await app.register(cookie);
   await app.register(formbody);
   await app.register(jwt, {

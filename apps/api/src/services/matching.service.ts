@@ -113,6 +113,45 @@ export async function expireBiddingSession(jobId: string): Promise<void> {
   notifyUnactioned(jobId).catch(() => {});
 }
 
+/**
+ * Sweep for any jobs whose bidding window has elapsed but were never expired.
+ *
+ * Per-job expiry is normally driven by a BullMQ delayed task scheduled at
+ * job-creation time. That task can be lost if Redis is flushed or the worker
+ * is down at the moment it should fire, leaving the job stuck in POSTED /
+ * BIDDING / RADIUS_EXPANDED forever (and showing the wrong status in admin).
+ *
+ * This sweep is the backstop: it processes every overdue job through the same
+ * expireBiddingSession() helper so behaviour matches a normal expiry exactly
+ * (status flip, bids rejected, reserved commissions released, sockets emitted,
+ * notifications sent).
+ *
+ * Returns the number of jobs swept.
+ */
+export async function sweepExpiredBiddingSessions(): Promise<number> {
+  const overdue = await prisma.job.findMany({
+    where: {
+      status: { in: ["POSTED", "BIDDING", "RADIUS_EXPANDED"] },
+      biddingExpiresAt: { lt: new Date() },
+    },
+    select: { id: true },
+  });
+  if (overdue.length === 0) return 0;
+
+  // Process sequentially — each call writes to the same wallets/notifications
+  // pipeline and we'd rather log clean diagnostics than thrash the DB.
+  let swept = 0;
+  for (const { id } of overdue) {
+    try {
+      await expireBiddingSession(id);
+      swept++;
+    } catch (err) {
+      console.error("[sweepExpiredBiddingSessions] failed for", id, err);
+    }
+  }
+  return swept;
+}
+
 async function notifyUnactioned(jobId: string): Promise<void> {
   // Find all userIds who got the new_load notification for this job
   const notified = await prisma.notification.findMany({

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -sS -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhZG1pbklkIjoiZmEwM2M0YmEtZjcyZC00YzVlLThiNWUtYjg2MTI2Nzc5ZDJkIiwidXNlcm5hbWUiOiJhZG1pbiIsInR5cGUiOiJhZG1pbiIsImlhdCI6MTc4MDAzMzk0NywiZXhwIjoxNzgwMDYyNzQ3fQ.OT82cyiEwkxzyPTD8FdMCxv7V4ckLt1ErFXK7O7CpzE' http://localhost:3000/v1/admin/stats)",
+      "Bash(python3 -c 'import json,sys; print\\(json.load\\(sys.stdin\\)[\"data\"][\"stats\"]\\)')"
+    ]
+  }
+}

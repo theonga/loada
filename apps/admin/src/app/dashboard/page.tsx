@@ -5,18 +5,20 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { api, AdminStats, AnalyticsData } from "@/lib/api";
+import { PageHead } from "@/components/ui";
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
+// ── Chart palette (matches the design tokens) ────────────────────────
+
 const C = {
   accent:  "#4f7cff",
   green:   "#34d399",
   red:     "#f87171",
-  blue:    "#4f7cff",
   purple:  "#a78bfa",
   cyan:    "#22d3ee",
   amber:   "#F5A623",
   divider: "#2a2f3e",
-  text2:   "#8b92a5",
+  text2:   "#a0a8bc",
+  text3:   "#737b96",
 };
 
 const tooltipStyle = {
@@ -28,16 +30,17 @@ const tooltipStyle = {
     fontFamily: "DM Sans, ui-sans-serif",
     boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
   },
-  labelStyle:  { color: "#8b92a5", marginBottom: 6, fontWeight: 600 },
-  itemStyle:   { color: "#e8eaf0" },
-  cursor:      { fill: "rgba(255,255,255,0.025)" },
+  labelStyle: { color: C.text2, marginBottom: 6, fontWeight: 600 },
+  itemStyle:  { color: "#e8eaf0" },
+  cursor:     { fill: "rgba(255,255,255,0.025)" },
 };
 
-// ── Preset date ranges ────────────────────────────────────────────────────────
+// ── Date range helper ────────────────────────────────────────────────
+
 type Preset = "7d" | "30d" | "90d" | "custom";
 
 function presetRange(p: Preset): { from: string; to: string } {
-  const to   = new Date();
+  const to = new Date();
   const from = new Date();
   if (p === "7d")  from.setDate(to.getDate() - 7);
   if (p === "30d") from.setDate(to.getDate() - 30);
@@ -52,87 +55,39 @@ function fmtDate(s: string) {
   return new Date(s + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── KPI sub-component ────────────────────────────────────────────────
 
-function KpiCard({
-  label, value, sub, trend, accent,
+function Kpi({
+  label, value, sub, accent,
 }: {
   label: string;
   value: string;
-  sub?: string;
-  trend?: { dir: "up" | "down"; label: string };
-  accent?: "blue" | "green" | "amber";
+  sub?: React.ReactNode;
+  accent?: "blue" | "green" | "amber" | "red";
 }) {
-  const valueColor = accent === "blue" ? C.accent : accent === "green" ? C.green : accent === "amber" ? C.amber : "var(--color-text-primary)";
   return (
-    <div style={{
-      background: "var(--color-surface)",
-      border: "1px solid var(--color-border)",
-      borderRadius: 16,
-      padding: "22px 24px",
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-      minWidth: 0,
-    }}>
-      <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.09em", textTransform: "uppercase", color: "var(--color-text-muted)" }}>
-        {label}
-      </span>
-      <span style={{
-        fontSize: 32,
-        fontWeight: 700,
-        fontFamily: "DM Mono, ui-monospace",
-        fontVariantNumeric: "tabular-nums",
-        color: valueColor,
-        lineHeight: 1,
-        letterSpacing: "-0.02em",
-      }}>
-        {value}
-      </span>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        {sub && (
-          <span style={{ fontSize: 13, color: "var(--color-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {sub}
-          </span>
-        )}
-        {trend && (
-          <span style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: trend.dir === "up" ? C.green : C.red,
-            background: trend.dir === "up" ? "rgba(52,211,153,0.12)" : "rgba(248,113,113,0.12)",
-            padding: "2px 7px",
-            borderRadius: 999,
-            flexShrink: 0,
-          }}>
-            {trend.dir === "up" ? "↑" : "↓"} {trend.label}
-          </span>
-        )}
-      </div>
+    <div className="kpi">
+      <div className="lbl">{label}</div>
+      <div className={`val${accent ? ` ${accent}` : ""}`}>{value}</div>
+      {sub && <div className="sub">{sub}</div>}
     </div>
   );
 }
 
-function ChartCard({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+function KpiSkeleton() {
   return (
-    <div style={{
-      background: "var(--color-surface)",
-      border: "1px solid var(--color-border)",
-      borderRadius: 16,
-      padding: "24px",
-    }}>
-      <div style={{ marginBottom: 20 }}>
-        <p style={{ fontSize: 15, fontWeight: 700, color: "var(--color-text-primary)", letterSpacing: "-0.01em" }}>{title}</p>
-        {sub && <p style={{ color: "var(--color-text-secondary)", fontSize: 13, marginTop: 3 }}>{sub}</p>}
-      </div>
-      {children}
+    <div className="kpi">
+      <div className="lbl" style={{ background: "var(--color-raised)", borderRadius: 4, color: "transparent", width: 80 }}>·</div>
+      <div className="val" style={{ background: "var(--color-raised)", borderRadius: 6, color: "transparent" }}>·</div>
+      <div className="sub" style={{ background: "var(--color-raised)", borderRadius: 4, color: "transparent", width: 100 }}>·</div>
     </div>
   );
 }
+
+// ── Page ─────────────────────────────────────────────────────────────
 
 type ChartTab = "jobs" | "revenue" | "users";
 
-// ── Page ──────────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const [stats,     setStats]     = useState<AdminStats | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
@@ -174,6 +129,7 @@ export default function DashboardPage() {
     }
   }
 
+  // Series for the active tab
   const seriesData: Record<string, unknown>[] = (() => {
     if (!analytics) return [];
     if (chartTab === "jobs")    return analytics.series.jobs.map((r) => ({ label: fmtDate(r.date), created: r.created, completed: r.completed }));
@@ -186,8 +142,9 @@ export default function DashboardPage() {
         name,
         value,
         color: {
-          POSTED: C.amber, BIDDING: C.blue, MATCHED: C.purple,
-          IN_TRANSIT: C.cyan, COMPLETED: C.green,
+          POSTED: C.accent, BIDDING: C.accent, RADIUS_EXPANDED: C.accent,
+          MATCHED: C.amber, IN_TRANSIT: C.amber, PICKUP_EN_ROUTE: C.amber, PICKUP_ARRIVED: C.amber, LOADED: C.amber,
+          COMPLETED: C.green, DELIVERED: C.green,
           CANCELLED: C.red, DISPUTED: C.red,
         }[name] ?? C.text2,
       }))
@@ -198,161 +155,150 @@ export default function DashboardPage() {
         name,
         value,
         color: {
-          "No balance": C.red,
-          "$0.01–$9":   C.amber,
-          "$10–$49":    C.blue,
-          "$50+":       C.green,
+          "No balance": "#3d5cae",
+          "$0.01–$9":   C.accent,
+          "$10–$49":    "#6b91ff",
+          "$50+":       "#8fa9ff",
         }[name] ?? C.text2,
       }))
     : [];
 
   const totalWalletsFromBands = walletBandData.reduce((s, r) => s + r.value, 0);
 
-  // ── Skeleton rows for loading ──────────────────────────────────────
-  const SkeletonCard = () => (
-    <div style={{ background: "var(--color-surface)", border: "1px solid var(--color-border)", borderRadius: 16, padding: "22px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
-      <div style={{ height: 11, width: 80, background: "var(--color-surface-raised)", borderRadius: 6 }} />
-      <div style={{ height: 32, width: 120, background: "var(--color-surface-raised)", borderRadius: 8 }} />
-      <div style={{ height: 13, width: 100, background: "var(--color-surface-raised)", borderRadius: 6 }} />
-    </div>
-  );
-
   return (
-    <div className="page-wrap" style={{ maxWidth: 1600 }}>
-
-      {/* ── Header ── */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 16, marginBottom: 32 }}>
-        <div className="page-header" style={{ marginBottom: 0 }}>
-          <p className="page-eyebrow">Operations</p>
-          <h1 className="page-title">Overview</h1>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--color-text-secondary)" }}>
-          <span style={{ width: 8, height: 8, borderRadius: "50%", background: C.green, display: "inline-block", boxShadow: `0 0 0 3px rgba(52,211,153,0.2)` }} />
-          Live data
-        </div>
-      </div>
+    <div>
+      <PageHead
+        eyebrow="Operations"
+        title="Overview"
+        sub="Platform health at a glance"
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--color-text-secondary)" }}>
+            <span
+              style={{
+                width: 8, height: 8, borderRadius: "50%",
+                background: C.green,
+                boxShadow: "0 0 0 3px rgba(52,211,153,0.2)",
+              }}
+            />
+            Live data
+          </div>
+        }
+      />
 
       {error && <div className="error-banner">{error}</div>}
 
-      {/* ── KPIs ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 16, marginBottom: 32 }}>
-        {loading ? (
-          [1,2,3,4,5].map((i) => <SkeletonCard key={i} />)
+      {/* KPI strip */}
+      <div className="kpi-grid">
+        {loading || !stats ? (
+          [1, 2, 3, 4, 5].map((i) => <KpiSkeleton key={i} />)
         ) : (
           <>
-            <KpiCard
+            <Kpi
               label="Total Users"
-              value={stats ? stats.totalUsers.toLocaleString() : "—"}
-              sub={stats ? `${stats.totalDrivers} drivers · ${stats.totalShippers} shippers` : undefined}
+              value={stats.totalUsers.toLocaleString()}
+              sub={<><span className="mono">{stats.totalDrivers}</span> drivers · <span className="mono">{stats.totalShippers}</span> shippers</>}
             />
-            <KpiCard
+            <Kpi
               label="Commission This Month"
-              value={stats ? `$${Number(stats.commissionThisMonth ?? 0).toFixed(2)}` : "—"}
+              value={`$${Number(stats.commissionThisMonth ?? 0).toFixed(2)}`}
               sub="from completed jobs"
               accent="amber"
             />
-            <KpiCard
+            <Kpi
               label="Total Jobs"
-              value={stats ? stats.totalJobs.toLocaleString() : "—"}
-              sub={stats ? `${stats.activeJobs} active now` : undefined}
+              value={stats.totalJobs.toLocaleString()}
+              sub={<><span className="mono">{stats.activeJobs}</span> active now</>}
             />
-            <KpiCard
+            <Kpi
               label="Completed Today"
-              value={stats ? stats.completedJobsToday.toLocaleString() : "—"}
+              value={stats.completedJobsToday.toLocaleString()}
               accent="green"
             />
-            <KpiCard
+            <Kpi
               label="Wallet Funds Held"
-              value={stats ? `$${Number(stats.totalWalletFunds ?? 0).toFixed(2)}` : "—"}
-              sub={stats ? `$${Number(stats.totalCommissionCollected ?? 0).toFixed(2)} earned all-time` : undefined}
+              value={`$${Number(stats.totalWalletFunds ?? 0).toFixed(2)}`}
+              sub={<><span className="mono">${Number(stats.totalCommissionCollected ?? 0).toFixed(2)}</span> earned all-time</>}
               accent="blue"
             />
           </>
         )}
       </div>
 
-      {/* ── Date-range toolbar ── */}
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 20 }}>
-        {(["7d", "30d", "90d", "custom"] as Preset[]).map((p) => (
-          <button
-            key={p}
-            onClick={() => applyPreset(p)}
-            style={{
-              padding: "7px 14px",
-              borderRadius: 8,
-              fontSize: 13,
-              fontWeight: 500,
-              cursor: "pointer",
-              transition: "all 0.15s",
-              border: preset === p
-                ? "1px solid rgba(79,124,255,0.45)"
-                : "1px solid var(--color-border)",
-              background: preset === p
-                ? "rgba(79,124,255,0.12)"
-                : "var(--color-surface-raised)",
-              color: preset === p
-                ? "var(--color-accent)"
-                : "var(--color-text-secondary)",
-            }}
-          >
-            {p === "7d" ? "Last 7 days" : p === "30d" ? "Last 30 days" : p === "90d" ? "Last 90 days" : "Custom range"}
-          </button>
-        ))}
-
-        {preset === "custom" && (
-          <>
-            <input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)}
-              className="tw-input num" style={{ width: 160, height: 36, padding: "0 12px", fontSize: 13 }} />
-            <span style={{ color: "var(--color-text-muted)", fontSize: 13 }}>→</span>
-            <input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)}
-              className="tw-input num" style={{ width: 160, height: 36, padding: "0 12px", fontSize: 13 }} />
-            <button onClick={load} className="btn btn-primary btn-sm">Apply</button>
-          </>
-        )}
-
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={{ fontSize: 11, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginRight: 6 }}>
-            Group by
-          </span>
-          {(["day", "week", "month"] as const).map((g) => (
+      {/* Date-range pill row + granularity */}
+      <div className="toolbar" style={{ marginTop: 18, marginBottom: 6 }}>
+        <div className="pill-row">
+          {(["7d", "30d", "90d"] as Preset[]).map((p) => (
             <button
-              key={g}
-              onClick={() => setGran(g)}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 7,
-                fontSize: 12,
-                fontWeight: 500,
-                cursor: "pointer",
-                transition: "all 0.15s",
-                background: gran === g ? "var(--color-surface-raised)" : "transparent",
-                color: gran === g ? "var(--color-text-primary)" : "var(--color-text-muted)",
-                border: gran === g ? "1px solid var(--color-border)" : "1px solid transparent",
-              }}
+              key={p}
+              type="button"
+              className={`pill ${preset === p ? "on" : ""}`}
+              onClick={() => applyPreset(p)}
             >
-              {g.charAt(0).toUpperCase() + g.slice(1)}
+              Last {p === "7d" ? "7" : p === "30d" ? "30" : "90"} days
             </button>
           ))}
+          <button
+            type="button"
+            className={`pill ${preset === "custom" ? "on" : ""}`}
+            onClick={() => applyPreset("custom")}
+          >
+            Custom range
+          </button>
+        </div>
+
+        {preset === "custom" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="date"
+              className="input mono"
+              style={{ width: 170, height: 38 }}
+              value={from}
+              max={to}
+              onChange={(e) => setFrom(e.target.value)}
+            />
+            <span style={{ color: "var(--color-text-muted)" }}>→</span>
+            <input
+              type="date"
+              className="input mono"
+              style={{ width: 170, height: 38 }}
+              value={to}
+              min={from}
+              onChange={(e) => setTo(e.target.value)}
+            />
+            <button className="btn primary sm" onClick={load}>Apply</button>
+          </div>
+        )}
+
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+          <span className="eyebrow" style={{ marginRight: 6 }}>Group by</span>
+          <div className="pill-row" style={{ padding: 2 }}>
+            {(["day", "week", "month"] as const).map((g) => (
+              <button
+                key={g}
+                type="button"
+                className={`pill ${gran === g ? "on" : ""}`}
+                onClick={() => setGran(g)}
+                style={{ height: 28, padding: "0 12px", fontSize: 12 }}
+              >
+                {g.charAt(0).toUpperCase() + g.slice(1)}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* ── Main chart ── */}
-      <div style={{
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: 16,
-        padding: "24px",
-        marginBottom: 20,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24 }}>
-          <div style={{
-            display: "flex",
-            gap: 4,
-            padding: 4,
-            background: "var(--color-bg)",
-            borderRadius: 10,
-            border: "1px solid var(--color-border)",
-          }}>
+      {/* Main time-series chart */}
+      <div className="chart-card" style={{ marginTop: 12 }}>
+        <div className="chart-head">
+          <div>
+            <div className="chart-title">
+              {chartTab === "jobs" ? "Jobs over time" : chartTab === "revenue" ? "Revenue over time" : "New users over time"}
+            </div>
+            <div className="chart-sub">
+              {preset === "custom" ? `${from} → ${to}` : `Last ${preset.replace("d", "")} days`} · grouped by {gran}
+            </div>
+          </div>
+          <div className="pill-row" style={{ padding: 2 }}>
             {([
               { id: "jobs",    label: "Jobs" },
               { id: "revenue", label: "Revenue" },
@@ -360,28 +306,15 @@ export default function DashboardPage() {
             ] as { id: ChartTab; label: string }[]).map((t) => (
               <button
                 key={t.id}
+                type="button"
+                className={`pill ${chartTab === t.id ? "on" : ""}`}
                 onClick={() => setChartTab(t.id)}
-                style={{
-                  padding: "6px 16px",
-                  borderRadius: 7,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                  background: chartTab === t.id ? "var(--color-surface-raised)" : "transparent",
-                  color: chartTab === t.id ? "var(--color-text-primary)" : "var(--color-text-muted)",
-                  border: chartTab === t.id ? "1px solid var(--color-border)" : "1px solid transparent",
-                }}
+                style={{ height: 28, padding: "0 12px", fontSize: 12 }}
               >
                 {t.label}
               </button>
             ))}
           </div>
-          {loading && (
-            <span style={{ fontSize: 11, color: "var(--color-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              Loading…
-            </span>
-          )}
         </div>
 
         {mounted ? (
@@ -399,8 +332,8 @@ export default function DashboardPage() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.divider} vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: C.text2, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: C.text2, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fill: C.text3, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: C.text3, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip {...tooltipStyle} />
                 <Area type="monotone" dataKey="created"   name="Created"   stroke={C.accent} strokeWidth={2} fill="url(#gCreated)"   dot={false} />
                 <Area type="monotone" dataKey="completed" name="Completed" stroke={C.green}  strokeWidth={2} fill="url(#gCompleted)" dot={false} />
@@ -409,40 +342,51 @@ export default function DashboardPage() {
               <AreaChart data={seriesData} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gRev" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%"  stopColor={C.green} stopOpacity={0.22} />
-                    <stop offset="95%" stopColor={C.green} stopOpacity={0} />
+                    <stop offset="5%"  stopColor={C.amber} stopOpacity={0.22} />
+                    <stop offset="95%" stopColor={C.amber} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.divider} vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: C.text2, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: C.text2, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
+                <XAxis dataKey="label" tick={{ fill: C.text3, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: C.text3, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v}`} />
                 <Tooltip {...tooltipStyle} formatter={(v) => [`$${v}`, "Revenue"]} />
-                <Area type="monotone" dataKey="amount" name="Revenue" stroke={C.green} strokeWidth={2} fill="url(#gRev)" dot={false} />
+                <Area type="monotone" dataKey="amount" name="Revenue" stroke={C.amber} strokeWidth={2} fill="url(#gRev)" dot={false} />
               </AreaChart>
             ) : (
               <BarChart data={seriesData} margin={{ top: 4, right: 4, left: -16, bottom: 0 }} barSize={10}>
                 <CartesianGrid strokeDasharray="3 3" stroke={C.divider} vertical={false} />
-                <XAxis dataKey="label" tick={{ fill: C.text2, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fill: C.text2, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fill: C.text3, fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <YAxis tick={{ fill: C.text3, fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <Tooltip {...tooltipStyle} />
                 <Bar dataKey="newUsers" name="New Users" fill={C.accent} radius={[4, 4, 0, 0]} />
               </BarChart>
             )}
           </ResponsiveContainer>
         ) : (
-          <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div style={{ color: "var(--color-text-muted)", fontSize: 14 }}>Loading chart…</div>
+          <div style={{ height: 240, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-muted)" }}>
+            Loading chart…
           </div>
         )}
       </div>
 
-      {/* ── Two side-by-side breakdown charts ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
-
+      {/* Side-by-side breakdown */}
+      <div className="charts-row r2" style={{ marginTop: 16 }}>
         {/* Jobs by status */}
-        <ChartCard title="Jobs by Status" sub="Current distribution across all time">
+        <div className="chart-card">
+          <div className="chart-head">
+            <div>
+              <div className="chart-title">Jobs by Status</div>
+              <div className="chart-sub">Current snapshot</div>
+            </div>
+            <div className="legend">
+              <span className="sw"><span className="swatch" style={{ background: C.accent }} />Active</span>
+              <span className="sw"><span className="swatch" style={{ background: C.amber }} />In progress</span>
+              <span className="sw"><span className="swatch" style={{ background: C.green }} />Complete</span>
+              <span className="sw"><span className="swatch" style={{ background: C.red }} />Cancelled</span>
+            </div>
+          </div>
           {jobStatusData.length === 0 ? (
-            <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-muted)", fontSize: 14 }}>
+            <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-muted)" }}>
               {loading ? "Loading…" : "No data"}
             </div>
           ) : (
@@ -456,9 +400,7 @@ export default function DashboardPage() {
                   </PieChart>
                 </ResponsiveContainer>
               ) : (
-                <div style={{ width: 140, height: 140, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <div style={{ width: 60, height: 60, borderRadius: "50%", border: `4px solid var(--color-border)`, borderTopColor: C.accent }} className="animate-spin" />
-                </div>
+                <div style={{ width: 140, height: 140 }} />
               )}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minWidth: 0 }}>
                 {jobStatusData.map((s) => (
@@ -469,7 +411,7 @@ export default function DashboardPage() {
                         {s.name.replace(/_/g, " ")}
                       </span>
                     </div>
-                    <span style={{ fontFamily: "DM Mono, monospace", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: "var(--color-text-primary)", flexShrink: 0 }}>
+                    <span className="mono" style={{ fontWeight: 600, color: "var(--color-text-primary)" }}>
                       {s.value.toLocaleString()}
                     </span>
                   </div>
@@ -477,64 +419,92 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
-        </ChartCard>
+        </div>
 
-        {/* Wallet balance distribution */}
-        <ChartCard title="Driver Wallet Balances" sub="How funds are distributed across drivers">
-          {walletBandData.length === 0 ? (
-            <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-muted)", fontSize: 14 }}>
-              {loading ? "Loading…" : "No data"}
+        {/* Activity stat-grid */}
+        <div className="chart-card">
+          <div className="chart-head">
+            <div>
+              <div className="chart-title">Platform Activity</div>
+              <div className="chart-sub">Snapshot</div>
             </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 8 }}>
-              {walletBandData.map((s) => {
-                const pct = totalWalletsFromBands > 0 ? Math.round((s.value / totalWalletsFromBands) * 100) : 0;
-                return (
-                  <div key={s.name} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color }} />
-                        <span style={{ color: "var(--color-text-secondary)" }}>{s.name}</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <span style={{ fontFamily: "DM Mono, monospace", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: "var(--color-text-primary)" }}>
-                          {s.value}
-                        </span>
-                        <span style={{ fontFamily: "DM Mono, monospace", fontVariantNumeric: "tabular-nums", color: "var(--color-text-muted)", width: 32, textAlign: "right" }}>
-                          {pct}%
-                        </span>
-                      </div>
-                    </div>
-                    <div style={{ height: 6, borderRadius: 999, background: "var(--color-surface-raised)", overflow: "hidden" }}>
-                      <div style={{
-                        height: "100%",
-                        borderRadius: 999,
-                        width: `${pct}%`,
-                        background: s.color,
-                        transition: "width 0.6s ease",
-                      }} />
-                    </div>
-                  </div>
-                );
-              })}
+          </div>
+          <div className="stat-grid">
+            <div>
+              <div className="s-lbl">Active jobs</div>
+              <div className="s-val">{stats?.activeJobs ?? "—"}</div>
             </div>
-          )}
-        </ChartCard>
+            <div>
+              <div className="s-lbl">Pending docs</div>
+              <div className="s-val">{stats?.pendingDocuments ?? "—"}</div>
+            </div>
+            <div>
+              <div className="s-lbl">Total drivers</div>
+              <div className="s-val">{stats?.totalDrivers ?? "—"}</div>
+            </div>
+            <div>
+              <div className="s-lbl">Total shippers</div>
+              <div className="s-val">{stats?.totalShippers ?? "—"}</div>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* ── Action required ── */}
-      <div style={{
-        background: "var(--color-surface)",
-        border: "1px solid var(--color-border)",
-        borderRadius: 16,
-        padding: "24px",
-      }}>
-        <p style={{ fontSize: 15, fontWeight: 700, color: "var(--color-text-primary)", letterSpacing: "-0.01em", marginBottom: 16 }}>
-          Action Required
-        </p>
+      {/* Wallet balance distribution */}
+      <div className="chart-card" style={{ marginTop: 16 }}>
+        <div className="chart-head">
+          <div>
+            <div className="chart-title">Driver Wallet Balances</div>
+            <div className="chart-sub">Distribution across {totalWalletsFromBands} drivers</div>
+          </div>
+        </div>
+        {walletBandData.length === 0 ? (
+          <div style={{ height: 120, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-muted)" }}>
+            {loading ? "Loading…" : "No data"}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14, paddingTop: 4 }}>
+            {walletBandData.map((s) => {
+              const pct = totalWalletsFromBands > 0 ? Math.round((s.value / totalWalletsFromBands) * 100) : 0;
+              return (
+                <div key={s.name} style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color }} />
+                      <span style={{ color: "var(--color-text-secondary)" }}>{s.name}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span className="mono" style={{ fontWeight: 600, color: "var(--color-text-primary)" }}>{s.value}</span>
+                      <span className="mono" style={{ color: "var(--color-text-muted)", width: 32, textAlign: "right" }}>{pct}%</span>
+                    </div>
+                  </div>
+                  <div style={{ height: 6, borderRadius: 999, background: "var(--color-raised)", overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%",
+                      borderRadius: 999,
+                      width: `${pct}%`,
+                      background: s.color,
+                      transition: "width 0.6s ease",
+                    }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Action required */}
+      <div className="chart-card" style={{ marginTop: 16 }}>
+        <div className="chart-head">
+          <div>
+            <div className="chart-title">Action Required</div>
+            <div className="chart-sub">Items waiting for an admin</div>
+          </div>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
           <ActionItem label="Pending document reviews" value={stats?.pendingDocuments ?? null} color={C.amber} href="/dashboard/drivers" urgent />
-          <ActionItem label="Active jobs in progress"  value={stats?.activeJobs ?? null}        color={C.blue}  href="/dashboard/jobs" />
+          <ActionItem label="Active jobs in progress"  value={stats?.activeJobs ?? null}        color={C.accent} href="/dashboard/jobs" />
           <ActionItem label="Completed today"          value={stats?.completedJobsToday ?? null} color={C.green} href="/dashboard/jobs" />
         </div>
       </div>
@@ -542,9 +512,16 @@ export default function DashboardPage() {
   );
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function ActionItem({ label, value, color, href, urgent }: {
-  label: string; value: number | null; color: string; href: string; urgent?: boolean;
+// ── Sub-component ────────────────────────────────────────────────────
+
+function ActionItem({
+  label, value, color, href, urgent,
+}: {
+  label: string;
+  value: number | null;
+  color: string;
+  href: string;
+  urgent?: boolean;
 }) {
   return (
     <a
@@ -555,35 +532,39 @@ function ActionItem({ label, value, color, href, urgent }: {
         justifyContent: "space-between",
         padding: "14px 18px",
         borderRadius: 12,
-        background: "var(--color-surface-raised)",
+        background: "var(--color-raised)",
         border: "1px solid var(--color-border)",
-        transition: "border-color 0.15s, background 0.15s",
-        cursor: "pointer",
+        transition: "border-color 80ms, background 80ms",
         textDecoration: "none",
       }}
       onMouseEnter={(e) => {
-        (e.currentTarget as HTMLElement).style.borderColor = "#3a4055";
-        (e.currentTarget as HTMLElement).style.background = "#252a38";
+        (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border-hi)";
+        (e.currentTarget as HTMLElement).style.background = "var(--color-raised-hi)";
       }}
       onMouseLeave={(e) => {
         (e.currentTarget as HTMLElement).style.borderColor = "var(--color-border)";
-        (e.currentTarget as HTMLElement).style.background = "var(--color-surface-raised)";
+        (e.currentTarget as HTMLElement).style.background = "var(--color-raised)";
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
         {urgent && value !== null && value > 0 && (
-          <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#f87171", flexShrink: 0, boxShadow: "0 0 0 3px rgba(248,113,113,0.2)" }} className="animate-pulse" />
+          <span style={{
+            width: 7, height: 7, borderRadius: "50%",
+            background: "#f87171", flexShrink: 0,
+            boxShadow: "0 0 0 3px rgba(248,113,113,0.2)",
+          }} />
         )}
-        <span style={{ fontSize: 14, color: "var(--color-text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span style={{
+          fontSize: 14, color: "var(--color-text-secondary)",
+          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+        }}>
           {label}
         </span>
       </div>
-      <span style={{
+      <span className="mono" style={{
         marginLeft: 16,
         fontSize: 20,
         fontWeight: 700,
-        fontFamily: "DM Mono, monospace",
-        fontVariantNumeric: "tabular-nums",
         color,
         flexShrink: 0,
       }}>

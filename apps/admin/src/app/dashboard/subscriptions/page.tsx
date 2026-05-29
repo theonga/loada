@@ -1,55 +1,48 @@
 "use client";
-import { useEffect, useState } from "react";
-import { api, WalletRecord } from "@/lib/api";
+import { useEffect, useState, useCallback } from "react";
+import { api, WalletRecord, WalletStats } from "@/lib/api";
+import {
+  PageHead, SearchInput, Avatar, Modal, Pager,
+  LoadingRow, EmptyRow,
+} from "@/components/ui";
 
-const TX_TYPE_LABEL: Record<string, string> = {
-  DEPOSIT:            "Deposit",
-  COMMISSION_RESERVE: "Reserved",
-  COMMISSION_RELEASE: "Released",
-  COMMISSION_DEDUCT:  "Commission",
-  REFUND:             "Refund",
+const LIMIT = 25;
+
+// Maps each wallet-tx type to the .tx-chip variant + formatter
+const TX_CHIPS: Record<string, { tone: string; format: (n: number) => string }> = {
+  DEPOSIT:            { tone: "green",  format: (n) => `+$${n.toFixed(2)}` },
+  COMMISSION_RESERVE: { tone: "amber",  format: (n) => `−$${n.toFixed(2)} held` },
+  COMMISSION_RELEASE: { tone: "blue",   format: (n) => `+$${n.toFixed(2)} released` },
+  COMMISSION_DEDUCT:  { tone: "red",    format: (n) => `−$${n.toFixed(2)} fee` },
+  REFUND:             { tone: "green",  format: (n) => `+$${n.toFixed(2)} refund` },
+  ADJUSTMENT:         { tone: "purple", format: (n) => `${n >= 0 ? "+" : "−"}$${Math.abs(n).toFixed(2)} adj` },
 };
 
-const TX_TYPE_COLOR: Record<string, string> = {
-  DEPOSIT:            "#34d399",
-  COMMISSION_RESERVE: "#fbbf24",
-  COMMISSION_RELEASE: "#22d3ee",
-  COMMISSION_DEDUCT:  "#f87171",
-  REFUND:             "#a78bfa",
-};
+function txChip(type: string, amount: number) {
+  const meta = TX_CHIPS[type] ?? { tone: "blue", format: (n: number) => `$${n.toFixed(2)}` };
+  return <span className={`tx-chip ${meta.tone}`}>{meta.format(amount)}</span>;
+}
 
-const AVATAR_COLORS = ["#4f7cff","#34d399","#fbbf24","#a78bfa","#22d3ee","#fb923c","#f87171"];
-function avatarColor(name: string) { return AVATAR_COLORS[(name.charCodeAt(0) ?? 0) % AVATAR_COLORS.length]; }
-function initials(name: string) { return name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase(); }
-
-function Avatar({ name, size = 36 }: { name: string; size?: number }) {
-  const c = avatarColor(name);
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: "50%", flexShrink: 0,
-      background: `${c}18`, border: `1px solid ${c}35`,
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: size * 0.33, fontWeight: 700, color: c,
-    }}>
-      {initials(name)}
-    </div>
-  );
+function balanceTone(balance: number): { color: string; weight: number } {
+  if (balance < 10) return { color: "var(--color-danger)",  weight: 700 };
+  if (balance >= 50) return { color: "var(--color-success)", weight: 700 };
+  return { color: "var(--color-text-primary)", weight: 600 };
 }
 
 export default function WalletsPage() {
   const [wallets,  setWallets]  = useState<WalletRecord[]>([]);
+  const [stats,    setStats]    = useState<WalletStats | null>(null);
   const [total,    setTotal]    = useState(0);
   const [page,     setPage]     = useState(1);
   const [search,   setSearch]   = useState("");
   const [loading,  setLoading]  = useState(true);
   const [modal,    setModal]    = useState<WalletRecord | null>(null);
-  const [adjAmount, setAdjAmount] = useState("");
-  const [adjNote,   setAdjNote]   = useState("");
+  const [adjAmt,   setAdjAmt]   = useState("");
+  const [adjNote,  setAdjNote]  = useState("");
   const [saving,   setSaving]   = useState(false);
   const [error,    setError]    = useState<string | null>(null);
-  const LIMIT = 50;
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -58,21 +51,25 @@ export default function WalletsPage() {
       const d = await api.getWallets(params);
       setWallets(d.wallets);
       setTotal(d.total);
-    } catch (e) { setError((e as Error).message); }
-    finally { setLoading(false); }
-  }
+      setStats(d.stats);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, search]);
 
-  useEffect(() => { load(); }, [page, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [load]);
 
   function openAdjust(wallet: WalletRecord) {
     setModal(wallet);
-    setAdjAmount("");
+    setAdjAmt("");
     setAdjNote("");
   }
 
   async function doAdjust() {
     if (!modal) return;
-    const amt = parseFloat(adjAmount);
+    const amt = parseFloat(adjAmt);
     if (isNaN(amt) || amt === 0) { setError("Enter a non-zero amount (negative to debit)"); return; }
     if (!adjNote.trim()) { setError("Reason is required"); return; }
     setSaving(true);
@@ -80,127 +77,147 @@ export default function WalletsPage() {
     try {
       const res = await api.adjustWallet(modal.driverId, amt, adjNote.trim());
       setWallets((prev) => prev.map((w) =>
-        w.id === modal.id ? { ...w, balance: res.wallet.balance } : w
+        w.id === modal.id ? { ...w, balance: res.wallet.balance } : w,
       ));
       setModal(null);
-    } catch (e) { setError((e as Error).message); }
-    finally { setSaving(false); }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
   }
 
-  const pages = Math.max(1, Math.ceil(total / LIMIT));
+  // Stats strip — all figures come from the API and are computed across EVERY
+  // wallet, not just the current page. `totalHeld` here matches the overview
+  // KPI "Wallet Funds Held" exactly (balance + reservedBalance, globally).
+  const totalHeld     = stats?.totalHeld     ?? 0;
+  const totalReserved = stats?.totalReserved ?? 0;
+  const zeroCount     = stats?.zeroCount     ?? 0;
+  const avg           = stats?.avg           ?? 0;
+  const driversCount  = stats?.driversCount  ?? 0;
+
+  const amtNum = parseFloat(adjAmt || "0") || 0;
+  const newBalance = modal ? Number(modal.balance) + amtNum : 0;
+
+  const totalPages = Math.max(1, Math.ceil(total / LIMIT));
 
   return (
-    <div className="page-wrap">
-      <div className="page-header">
-        <p className="page-eyebrow">Platform</p>
-        <h1 className="page-title">Driver Wallets</h1>
-      </div>
+    <div>
+      <PageHead
+        eyebrow="Platform"
+        title="Driver Wallets"
+        sub="Wallet balances and transaction history"
+      />
 
       <div className="toolbar">
-        <input
-          className="tw-input"
-          style={{ width: 260, height: 36, padding: "0 12px", fontSize: 13 }}
-          placeholder="Search by driver name…"
+        <SearchInput
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          onChange={(v) => { setSearch(v); setPage(1); }}
+          placeholder="Search by driver name or phone…"
         />
+      </div>
+
+      <div className="stats-strip">
+        <div className="s">
+          <div className="lbl">Total funds held</div>
+          <div className="val">${totalHeld.toFixed(2)}</div>
+        </div>
+        <div className="s">
+          <div className="lbl">Reserved</div>
+          <div className="val">${totalReserved.toFixed(2)}</div>
+        </div>
+        <div className="s">
+          <div className="lbl">Empty wallets</div>
+          <div className={`val ${zeroCount > 0 ? "red" : ""}`}>{zeroCount}</div>
+        </div>
+        <div className="s">
+          <div className="lbl">Average balance</div>
+          <div className="val">${avg.toFixed(2)}</div>
+        </div>
+        <div className="s">
+          <div className="lbl">Drivers tracked</div>
+          <div className="val">{driversCount.toLocaleString()}</div>
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
 
-      <div className="tw-card">
-        <table className="tw-table">
+      <div className="table-scroll">
+        <table className="t">
           <thead>
             <tr>
               <th>Driver</th>
-              <th className="text-right">Balance</th>
-              <th className="text-right">Reserved</th>
-              <th className="text-right">Available</th>
-              <th>Recent Transactions</th>
-              <th className="text-right">Actions</th>
+              <th>Phone</th>
+              <th style={{ textAlign: "right" }}>Balance</th>
+              <th style={{ textAlign: "right" }}>Reserved</th>
+              <th style={{ textAlign: "right" }}>Available</th>
+              <th>Recent transactions</th>
+              <th style={{ textAlign: "right" }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} style={{ textAlign: "center", padding: "48px 20px", color: "var(--color-text-muted)", fontSize: 14 }}>Loading…</td></tr>
+              <LoadingRow colSpan={7} />
             ) : wallets.length === 0 ? (
-              <tr><td colSpan={6} style={{ textAlign: "center", padding: "56px 20px" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-muted)" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h3M13 15h5"/>
+              <EmptyRow
+                colSpan={7}
+                icon={
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+                       stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="2" y="5" width="20" height="14" rx="2" />
+                    <path d="M2 10h20" />
+                    <path d="M6 15h3M13 15h5" />
                   </svg>
-                  <span style={{ fontSize: 14, color: "var(--color-text-muted)" }}>No wallets found</span>
-                </div>
-              </td></tr>
+                }
+                message="No wallets found"
+              />
             ) : wallets.map((w) => {
-              const balance  = Number(w.balance);
-              const reserved = Number(w.reservedBalance);
-              const available = balance - reserved;
-              const isLow = balance < 10;
-
+              const balance   = Number(w.balance);
+              const reserved  = Number(w.reservedBalance);
+              const available = +(balance - reserved).toFixed(2);
+              const tone = balanceTone(balance);
               return (
                 <tr key={w.id}>
                   <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <Avatar name={w.driver.user.name} />
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 14, color: "var(--color-text-primary)" }}>{w.driver.user.name}</div>
-                        <div className="num" style={{ fontSize: 13, color: "var(--color-text-secondary)", marginTop: 2 }}>{w.driver.user.phone}</div>
-                      </div>
+                    <div className="user-cell">
+                      <Avatar name={w.driver.user.name} size="sm" />
+                      <div className="name">{w.driver.user.name}</div>
                     </div>
                   </td>
-                  <td className="text-right">
-                    <span className="num" style={{
-                      fontSize: 14, fontWeight: 700,
-                      color: isLow ? "#f87171" : "#34d399",
-                    }}>
-                      ${balance.toFixed(2)}
-                    </span>
+                  <td className="mono" style={{ color: "var(--color-text-secondary)" }}>
+                    {w.driver.user.phone}
                   </td>
-                  <td className="text-right">
-                    <span className="num" style={{ fontSize: 13, color: reserved > 0 ? "#fbbf24" : "var(--color-text-muted)" }}>
-                      ${reserved.toFixed(2)}
-                    </span>
+                  <td className="mono" style={{ textAlign: "right", color: tone.color, fontWeight: tone.weight }}>
+                    ${balance.toFixed(2)}
                   </td>
-                  <td className="text-right">
-                    <span className="num" style={{
-                      fontSize: 13, fontWeight: 600,
-                      color: available < 5 ? "#f87171" : "var(--color-text-secondary)",
-                    }}>
-                      ${available.toFixed(2)}
-                    </span>
+                  <td className="mono" style={{
+                    textAlign: "right",
+                    color: reserved > 0 ? "var(--color-amber)" : "var(--color-text-muted)",
+                  }}>
+                    ${reserved.toFixed(2)}
+                  </td>
+                  <td className="mono" style={{
+                    textAlign: "right",
+                    fontWeight: 600,
+                    color: available < 5 ? "var(--color-danger)" : "var(--color-text-primary)",
+                  }}>
+                    ${available.toFixed(2)}
                   </td>
                   <td>
-                    <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 0 }}>
                       {w.transactions.length === 0 ? (
-                        <span style={{ fontSize: 13, color: "var(--color-text-muted)" }}>None</span>
-                      ) : w.transactions.slice(0, 3).map((tx) => {
-                        const c = TX_TYPE_COLOR[tx.type] ?? "#8b92a5";
-                        return (
-                          <div
-                            key={tx.id}
-                            title={`${TX_TYPE_LABEL[tx.type] ?? tx.type}: $${tx.amount}${tx.note ? ` — ${tx.note}` : ""}`}
-                            style={{
-                              display: "flex", alignItems: "center", gap: 4,
-                              background: `${c}18`, border: `1px solid ${c}35`,
-                              borderRadius: 6, padding: "3px 7px",
-                            }}
-                          >
-                            <span style={{ fontSize: 10, fontWeight: 700, color: c }}>
-                              {TX_TYPE_LABEL[tx.type] ?? tx.type}
-                            </span>
-                            <span className="num" style={{ fontSize: 11, fontWeight: 600, color: c }}>
-                              ${Number(tx.amount).toFixed(2)}
-                            </span>
-                          </div>
-                        );
-                      })}
+                        <span style={{ fontSize: 12, color: "var(--color-text-muted)" }}>None</span>
+                      ) : w.transactions.slice(0, 3).map((tx) => (
+                        <span key={tx.id} title={tx.note ?? undefined}>
+                          {txChip(tx.type, Number(tx.amount))}
+                        </span>
+                      ))}
                     </div>
                   </td>
-                  <td className="text-right">
-                    <button className="btn btn-ghost btn-sm" onClick={() => openAdjust(w)}>
-                      Adjust
-                    </button>
+                  <td>
+                    <div className="row-actions">
+                      <button className="btn ghost sm" onClick={() => openAdjust(w)}>Adjust</button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -209,72 +226,79 @@ export default function WalletsPage() {
         </table>
       </div>
 
-      <div className="pagination">
-        <span className="num" style={{ fontSize: 13 }}>{total.toLocaleString()} wallets — page {page} of {pages}</span>
-        <div className="flex gap-2">
-          <button className="btn btn-ghost btn-sm" disabled={page <= 1}    onClick={() => setPage((p) => p - 1)}>← Prev</button>
-          <button className="btn btn-ghost btn-sm" disabled={page >= pages} onClick={() => setPage((p) => p + 1)}>Next →</button>
-        </div>
-      </div>
+      <Pager
+        page={page}
+        totalPages={totalPages}
+        total={total}
+        perPage={LIMIT}
+        onPage={setPage}
+        unit="wallets"
+      />
 
-      {modal && (
-        <div className="overlay">
-          <div className="dialog">
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Avatar name={modal.driver.user.name} size={44} />
+      <Modal open={!!modal} onClose={() => setModal(null)}>
+        {modal && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
+              <Avatar name={modal.driver.user.name} size="lg" />
               <div>
-                <h3 className="dialog-title">Adjust wallet balance</h3>
-                <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginTop: 3 }}>
-                  {modal.driver.user.name} · current balance: <span className="num" style={{ fontWeight: 700 }}>${Number(modal.balance).toFixed(2)}</span>
+                <h3 style={{ marginBottom: 2 }}>Adjust balance</h3>
+                <p style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>
+                  {modal.driver.user.name} · current:{" "}
+                  <span className="mono" style={{ color: "var(--color-text-primary)", fontWeight: 600 }}>
+                    ${Number(modal.balance).toFixed(2)}
+                  </span>
                 </p>
               </div>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              <div className="field">
-                <label className="field-label">Amount (positive to credit, negative to debit)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  className="tw-input num"
-                  placeholder="e.g. 10 or -5"
-                  value={adjAmount}
-                  onChange={(e) => setAdjAmount(e.target.value)}
-                />
-              </div>
-              <div className="field">
-                <label className="field-label">Reason</label>
-                <input
-                  type="text"
-                  className="tw-input"
-                  placeholder="e.g. Goodwill credit for delayed job"
-                  value={adjNote}
-                  onChange={(e) => setAdjNote(e.target.value)}
-                />
-              </div>
-              {adjAmount && !isNaN(parseFloat(adjAmount)) && parseFloat(adjAmount) !== 0 && (
-                <div className="warn-banner">
-                  <span>{parseFloat(adjAmount) > 0 ? "✓" : "⚠"}</span>
-                  <span>
-                    Balance will change from <strong>${Number(modal.balance).toFixed(2)}</strong> →{" "}
-                    <strong>${(Number(modal.balance) + parseFloat(adjAmount)).toFixed(2)}</strong>
+
+            <div className="field">
+              <label className="label">
+                Amount (USD) — positive credit, negative debit
+              </label>
+              <input
+                className="input mono"
+                placeholder="e.g. 15.00 or -3.50"
+                value={adjAmt}
+                onChange={(e) => setAdjAmt(e.target.value)}
+                style={{ fontSize: 20, height: 56, fontWeight: 600 }}
+                autoFocus
+              />
+              {adjAmt !== "" && !isNaN(amtNum) && amtNum !== 0 && (
+                <div className="balance-pre">
+                  Balance: <span>${Number(modal.balance).toFixed(2)}</span>
+                  <span className="arrow">→</span>
+                  <span className={`new ${newBalance > Number(modal.balance) ? "up" : "down"}`}>
+                    ${newBalance.toFixed(2)}
                   </span>
                 </div>
               )}
             </div>
-            <div className="flex gap-2 justify-end">
-              <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-primary" disabled={saving} onClick={doAdjust}>
-                {saving ? (
-                  <span className="flex items-center gap-2">
-                    <span className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                    Saving…
-                  </span>
-                ) : "Apply"}
+
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label className="label">
+                Reason <span style={{ color: "var(--color-danger)" }}>*</span>
+              </label>
+              <textarea
+                className="input"
+                placeholder="e.g. Manual refund for cancelled job J-2841"
+                value={adjNote}
+                onChange={(e) => setAdjNote(e.target.value)}
+              />
+            </div>
+
+            <div className="actions">
+              <button className="btn ghost" onClick={() => setModal(null)}>Cancel</button>
+              <button
+                className="btn primary"
+                disabled={!adjNote.trim() || adjAmt === "" || isNaN(amtNum) || amtNum === 0 || saving}
+                onClick={doAdjust}
+              >
+                {saving ? "Saving…" : "Adjust balance"}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -7,6 +7,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw,   setShowPw]   = useState(false);
   const [error,    setError]    = useState<string | null>(null);
   const [loading,  setLoading]  = useState(false);
 
@@ -26,132 +27,84 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "var(--color-bg)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: "24px",
-    }}>
-      <div style={{ width: "100%", maxWidth: 400 }}>
+    <div className="login-wrap">
+      <div className="login-brand">
+        <div className="logo-mark">L</div>
+        <div className="t1">Loada</div>
+        <div className="t2">Admin Console</div>
+      </div>
 
-        {/* Brand */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 36, gap: 16 }}>
-          <div style={{
-            width: 64,
-            height: 64,
-            borderRadius: 20,
-            background: "#F5A623",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontWeight: 800,
-            fontSize: 28,
-            color: "#000",
-            boxShadow: "0 0 0 1px rgba(245,166,35,0.35), 0 8px 32px rgba(245,166,35,0.28)",
-            letterSpacing: "-0.02em",
-          }}>
-            L
+      <form className="login-card" onSubmit={handleSubmit}>
+        <h1>Sign in</h1>
+
+        {error && (
+          <div className="error-banner" role="alert">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 8v5" />
+              <path d="M12 16h.01" />
+            </svg>
+            <span>{error}</span>
           </div>
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontWeight: 800, fontSize: 22, color: "var(--color-text-primary)", letterSpacing: "-0.03em", lineHeight: 1 }}>
-              Loada Admin
-            </div>
-            <div style={{ color: "var(--color-text-muted)", fontSize: 14, marginTop: 6 }}>
-              Platform management console
-            </div>
+        )}
+
+        <div className="field">
+          <label className="label" htmlFor="login-u">Username</label>
+          <input
+            id="login-u"
+            className="input"
+            value={username}
+            onChange={(e) => { setUsername(e.target.value); setError(null); }}
+            autoComplete="username"
+            placeholder="opsadmin"
+            required
+          />
+        </div>
+
+        <div className="field">
+          <label className="label" htmlFor="login-p">Password</label>
+          <div className="pw-wrap">
+            <input
+              id="login-p"
+              className="input"
+              type={showPw ? "text" : "password"}
+              value={password}
+              onChange={(e) => { setPassword(e.target.value); setError(null); }}
+              autoComplete="current-password"
+              placeholder="••••••••"
+              style={{ paddingRight: 80 }}
+              required
+            />
+            <button
+              type="button"
+              className="pw-toggle"
+              onClick={() => setShowPw((s) => !s)}
+              tabIndex={-1}
+            >
+              {showPw ? "Hide" : "Show"}
+            </button>
           </div>
         </div>
 
-        {/* Form card */}
-        <form
-          onSubmit={handleSubmit}
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 20,
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-border)",
-            borderRadius: 20,
-            padding: "32px",
-            boxShadow: "0 32px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03)",
-          }}
+        <button
+          type="submit"
+          className="btn primary full"
+          disabled={loading || !username || !password}
+          style={{ marginTop: 4 }}
         >
-          {error && (
-            <div style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 10,
-              padding: "12px 14px",
-              borderRadius: 10,
-              background: "rgba(248,113,113,0.10)",
-              border: "1px solid rgba(248,113,113,0.25)",
-              color: "var(--color-danger)",
-              fontSize: 14,
-            }}>
-              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" style={{ flexShrink: 0, marginTop: 1 }}>
-                <circle cx="10" cy="10" r="8"/>
-                <path d="M10 6v4M10 14h.01"/>
-              </svg>
-              <span>{error}</span>
-            </div>
-          )}
+          {loading ? "Signing in…" : "Sign in"}
+        </button>
+      </form>
 
-          <div className="field">
-            <label htmlFor="username" className="field-label">Username</label>
-            <input
-              id="username"
-              className="tw-input"
-              type="text"
-              autoComplete="username"
-              placeholder="admin"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="password" className="field-label">Password</label>
-            <input
-              id="password"
-              className="tw-input"
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-            />
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading || !username || !password}
-            className="btn btn-primary"
-            style={{ width: "100%", marginTop: 4, fontSize: 15 }}
-          >
-            {loading ? (
-              <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{
-                  width: 16,
-                  height: 16,
-                  border: "2px solid rgba(255,255,255,0.3)",
-                  borderTopColor: "#fff",
-                  borderRadius: "50%",
-                  display: "inline-block",
-                }} className="animate-spin" />
-                Signing in…
-              </span>
-            ) : "Sign in"}
-          </button>
-        </form>
-
-        <p style={{ textAlign: "center", color: "var(--color-text-muted)", fontSize: 13, marginTop: 28 }}>
-          Loada Platform · Admin access only
-        </p>
-      </div>
+      <p style={{
+        textAlign: "center",
+        color: "var(--color-text-muted)",
+        fontSize: 12,
+        marginTop: 22,
+      }}>
+        Loada Platform · Admin access only
+      </p>
     </div>
   );
 }
