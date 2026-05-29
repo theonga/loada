@@ -7,16 +7,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { Skeleton } from '@components/ui/Skeleton';
 import { ScreenError } from '@components/ui/ScreenError';
-import { getJobById } from '@services';
+import { getJobById, updateJobStatus } from '@services';
 import { isAuthError } from '@services/api';
+import { useJobStore } from '@store/job.store';
 import type { Job } from '@/types';
 
 export default function DriverMatchConfirmedScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
+  const setActiveJob = useJobStore((s) => s.setActiveJob);
   const flash = useRef(new Animated.Value(0.8)).current;
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
+  const [navigating, setNavigating] = useState(false);
   const [error, setError] = useState('');
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
@@ -26,9 +29,21 @@ export default function DriverMatchConfirmedScreen() {
     setLoading(true);
     setError('');
     getJobById(jobId)
-      .then((j) => { setJob(j); setLoading(false); })
+      .then((j) => { setJob(j); setActiveJob(j); setLoading(false); })
       .catch((err) => { if (!isAuthError(err)) setError((err as Error).message ?? 'Failed to load job'); setLoading(false); });
   };
+
+  async function handleNavigateToPickup() {
+    if (!job) return;
+    setNavigating(true);
+    try {
+      const updated = await updateJobStatus(job.id, 'PICKUP_EN_ROUTE');
+      setActiveJob(updated);
+      router.replace('/(driver)/active/en-route');
+    } catch {
+      setNavigating(false);
+    }
+  }
 
   useEffect(() => {
     Animated.timing(flash, { toValue: 0, duration: 600, useNativeDriver: true }).start();
@@ -106,10 +121,11 @@ export default function DriverMatchConfirmedScreen() {
         <View style={styles.spacer} />
 
         <Pressable
-          style={styles.btn}
-          onPress={() => router.replace('/(driver)/active/en-route')}
+          style={[styles.btn, navigating && { opacity: 0.6 }]}
+          onPress={handleNavigateToPickup}
+          disabled={navigating}
         >
-          <Text style={styles.btnText}>Navigate to pickup</Text>
+          <Text style={styles.btnText}>{navigating ? 'Starting…' : 'Navigate to pickup'}</Text>
         </Pressable>
         {job && (
           <Pressable

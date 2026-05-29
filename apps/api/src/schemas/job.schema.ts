@@ -9,12 +9,14 @@ export const createJobSchema = z.object({
   destLng: z.number().min(-180).max(180),
   cargoDescription: z.string().min(3).max(500),
   requiredTonnes: z.union([
-    z.literal(1), z.literal(2), z.literal(5),
+    z.literal(1), z.literal(1.5), z.literal(2), z.literal(5),
     z.literal(10), z.literal(20), z.literal(30),
   ]),
   specialRequirements: z.array(z.enum(["FRAGILE", "REFRIGERATED", "OVERSIZED", "HAZARDOUS"])).default([]),
   askingPrice: z.number().positive().max(100000),
   currency: z.string().length(3).default("USD"),
+  requiredTruckType: z.enum(["PICKUP", "TRUCK", "BOX_TRUCK", "TOW_TRUCK"]).default("TRUCK"),
+  paymentMethod: z.enum(["CASH", "ECOCASH", "INNBUCKS", "BANK_TRANSFER"]).default("CASH"),
 });
 
 export const jobsQuerySchema = z.object({

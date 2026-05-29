@@ -8,10 +8,11 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { useJobStore } from '@store/job.store';
 import { usePhotoUpload } from '@hooks/usePhotoUpload';
 import { confirmPickup } from '@services';
+import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
 
 export default function PickupScreen() {
   const router = useRouter();
-  const job = useJobStore((s) => s.activeJob);
+  const job = useEnsureActiveJob();
   const setActiveJob = useJobStore((s) => s.setActiveJob);
   const { state: photoState, pickAndUpload } = usePhotoUpload('pickup');
   const [submitting, setSubmitting] = useState(false);
@@ -23,11 +24,11 @@ export default function PickupScreen() {
   const uploading = photoState.status === 'uploading';
 
   async function handleConfirm() {
-    if (!job || photoState.status !== 'done') return;
+    if (!job) return;
     setSubmitting(true);
     setSubmitError('');
     try {
-      await confirmPickup(job.id, photoState.s3Url);
+      await confirmPickup(job.id, photoReady ? photoState.s3Url : undefined);
       setActiveJob({ ...job, status: 'IN_TRANSIT' as typeof job.status });
       router.replace('/(driver)/active/in-transit');
     } catch {
@@ -47,7 +48,7 @@ export default function PickupScreen() {
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.instruction}>Take a photo of the loaded cargo to confirm pickup</Text>
+        <Text style={styles.instruction}>Take a photo of the loaded cargo</Text>
 
         <Pressable
           style={styles.cameraArea}
@@ -92,9 +93,9 @@ export default function PickupScreen() {
         <View style={styles.spacer} />
 
         <Pressable
-          style={[styles.btn, (!photoReady || submitting) && styles.btnDisabled]}
+          style={[styles.btn, submitting && styles.btnDisabled]}
           onPress={handleConfirm}
-          disabled={!photoReady || submitting}
+          disabled={submitting}
         >
           {submitting ? (
             <ActivityIndicator color={C.background.primary} />

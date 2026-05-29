@@ -10,7 +10,6 @@
 import { api } from './api';
 import { useAuthStore } from '@store/auth.store';
 import { useLocationStore } from '@store/location.store';
-import { SubscriptionStatus } from '@constants/index';
 import type {
   User,
   Job,
@@ -41,6 +40,8 @@ interface ApiJob {
   specialRequirements: string[];
   askingPrice: string | number;
   currency: string;
+  requiredTruckType?: string | null;
+  paymentMethod?: string | null;
   status: string;
   searchRadiusKm: number;
   biddingExpiresAt: string | null;
@@ -55,19 +56,23 @@ interface ApiJob {
 interface ApiDriverUser {
   id: string;
   name: string;
+  email?: string | null;
   profilePhotoUrl?: string | null;
 }
 
 interface ApiDriverProfile {
   id: string;
   userId: string;
+  truckType?: string | null;
   capacityTonnes: number;
   truckRegistration: string;
   truckMake: string;
   truckModel: string;
   truckYear: number;
   truckPhotoUrl?: string | null;
+  vehicleSidePhotoUrl?: string | null;
   licenceUrl?: string | null;
+  licenceBackUrl?: string | null;
   licenceExpiry?: string | null;
   registrationUrl?: string | null;
   registrationExpiry?: string | null;
@@ -95,12 +100,14 @@ interface ApiBid {
 
 interface ApiEarnings {
   totalEarned: number;
+  totalCommissionPaid: number;
+  netEarned: number;
   jobsCompleted: number;
   averagePerJob: number;
   bestDay: { dayOfWeek: string; earned: number } | null;
-  byDay: { dayOfWeek: string; earned: number }[];
-  subscriptionCost: number;
+  byDay: { dayOfWeek: string; earned: number; commissionPaid?: number }[];
   trendPercent: number | null;
+  walletBalance: number;
 }
 
 interface ApiMarketReference {
@@ -154,6 +161,8 @@ function toJob(j: ApiJob): Job {
     specialRequirements: j.specialRequirements ?? [],
     askingPrice: typeof j.askingPrice === 'string' ? parseFloat(j.askingPrice) : j.askingPrice,
     currency: j.currency,
+    requiredTruckType: j.requiredTruckType ?? undefined,
+    paymentMethod: j.paymentMethod ?? undefined,
     status: j.status as Job['status'],
     searchRadiusKm: j.searchRadiusKm,
     biddingExpiresAt: j.biddingExpiresAt ?? undefined,
@@ -172,13 +181,16 @@ function toDriverProfile(d: ApiDriverProfile): DriverProfile {
     id: d.id,
     userId: d.userId,
     name: d.user?.name ?? '',
+    truckType: d.truckType ?? undefined,
     capacityTonnes: d.capacityTonnes,
     truckRegistration: d.truckRegistration,
     truckMake: d.truckMake,
     truckModel: d.truckModel,
     truckYear: d.truckYear,
     truckPhotoUrl: d.truckPhotoUrl ?? undefined,
+    vehicleSidePhotoUrl: d.vehicleSidePhotoUrl ?? undefined,
     licenceUrl: d.licenceUrl ?? undefined,
+    licenceBackUrl: d.licenceBackUrl ?? undefined,
     licenceExpiry: d.licenceExpiry ?? undefined,
     registrationUrl: d.registrationUrl ?? undefined,
     registrationExpiry: d.registrationExpiry ?? undefined,
@@ -189,7 +201,6 @@ function toDriverProfile(d: ApiDriverProfile): DriverProfile {
     rating: 0,
     reviewCount: 0,
     yearsOnPlatform: 0,
-    subscriptionStatus: 'ACTIVE' as DriverProfile['subscriptionStatus'],
   };
 }
 
@@ -214,7 +225,6 @@ function toBid(b: ApiBid): Bid {
           rating: 0,
           reviewCount: 0,
           yearsOnPlatform: 0,
-          subscriptionStatus: SubscriptionStatus.ACTIVE,
         } satisfies DriverProfile),
     offeredPrice: typeof b.offeredPrice === 'string' ? parseFloat(b.offeredPrice) : b.offeredPrice,
     currency: b.currency,
@@ -236,6 +246,8 @@ function toEarnings(e: ApiEarnings): EarningsSummary {
   return {
     weekLabel: 'This week',
     totalEarned: e.totalEarned,
+    totalCommissionPaid: e.totalCommissionPaid ?? 0,
+    netEarned: e.netEarned ?? e.totalEarned,
     previousWeekTotal: prevTotal,
     jobsCompleted: e.jobsCompleted,
     totalKm: 0,
@@ -243,8 +255,8 @@ function toEarnings(e: ApiEarnings): EarningsSummary {
     bestDay: e.bestDay
       ? { day: e.bestDay.dayOfWeek, amount: e.bestDay.earned }
       : { day: 'Mon', amount: 0 },
-    subscriptionCost: e.subscriptionCost,
-    days: e.byDay.map((d) => ({ day: d.dayOfWeek, earned: d.earned })),
+    walletBalance: e.walletBalance ?? 0,
+    days: e.byDay.map((d) => ({ day: d.dayOfWeek, earned: d.earned, commissionPaid: d.commissionPaid ?? 0 })),
   };
 }
 
@@ -304,8 +316,8 @@ export async function verifyOTP(
   return { user: data.user, token: data.accessToken, isNewUser: data.isNewUser ?? false };
 }
 
-export async function updateProfile(name: string): Promise<void> {
-  await api.patch('/auth/me', { name });
+export async function updateProfile(updates: { name?: string; email?: string | null }): Promise<void> {
+  await api.patch('/auth/me', updates);
 }
 
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
@@ -330,6 +342,14 @@ export async function postJob(input: CreateJobInput): Promise<Job> {
 
 export async function cancelJob(jobId: string): Promise<void> {
   await api.patch(`/jobs/${jobId}/cancel`);
+}
+
+export async function updateJobStatus(
+  jobId: string,
+  status: 'PICKUP_EN_ROUTE' | 'PICKUP_ARRIVED' | 'IN_TRANSIT',
+): Promise<Job> {
+  const data = await api.patch<{ job: ApiJob }>(`/jobs/${jobId}/status`, { status });
+  return toJob(data.job);
 }
 
 export async function getShipperJobs(_shipperId: string, status?: string): Promise<Job[]> {
@@ -391,7 +411,7 @@ export async function getDelivery(jobId: string): Promise<import('@/types').Deli
   }
 }
 
-export async function confirmPickup(jobId: string, photoUri: string): Promise<void> {
+export async function confirmPickup(jobId: string, photoUri?: string): Promise<void> {
   await api.post(`/deliveries/${jobId}/pickup`, { photoUri });
 }
 
@@ -456,18 +476,26 @@ export async function getMyDriverProfile(): Promise<DriverProfile> {
 }
 
 export async function updateDriverProfile(fields: {
+  truckType?: string;
   truckMake?: string;
   truckModel?: string;
   truckYear?: number;
   truckRegistration?: string;
-  capacityTonnes?: 1 | 2 | 5 | 10 | 20 | 30;
+  capacityTonnes?: 1 | 1.5 | 2 | 5 | 10 | 20 | 30;
   licenceUrl?: string;
+  licenceBackUrl?: string;
   licenceExpiry?: string;
   registrationUrl?: string;
   registrationExpiry?: string;
   truckPhotoUrl?: string;
+  vehicleSidePhotoUrl?: string;
+  [key: string]: unknown;
 }): Promise<void> {
   await api.patch('/drivers/me', fields);
+}
+
+export async function updateShipperProfile(fields: { companyName?: string | null }): Promise<void> {
+  await api.patch('/shippers/me', fields);
 }
 
 export async function getNearbyDrivers(lat: number, lng: number, radiusKm = 25): Promise<DriverProfile[]> {
@@ -481,25 +509,6 @@ export async function getNearbyDrivers(lat: number, lng: number, radiusKm = 25):
   }
 }
 
-export async function getMySubscription(): Promise<import('@/types').Subscription | null> {
-  try {
-    const data = await api.get<{ subscription: import('@/types').Subscription }>('/subscriptions/me');
-    return data.subscription ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export async function initiateSubscription(params: {
-  plan: 'WEEKLY' | 'MONTHLY' | 'ANNUAL';
-  method: 'ecocash' | 'onemoney' | 'vmc';
-  phone?: string;
-  email?: string;
-}): Promise<{ pollUrl: string; redirectUrl: string }> {
-  const data = await api.post<{ pollUrl: string; redirectUrl: string; subscription: unknown }>('/subscriptions', params);
-  return { pollUrl: data.pollUrl, redirectUrl: data.redirectUrl ?? '' };
-}
-
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 export async function getMessages(jobId: string): Promise<Message[]> {
@@ -510,6 +519,29 @@ export async function getMessages(jobId: string): Promise<Message[]> {
 export async function sendMessage(jobId: string, content: string): Promise<Message> {
   const data = await api.post<{ message: ApiMessage }>('/messages', { jobId, content });
   return toMessage(data.message);
+}
+
+// ─── Wallet ───────────────────────────────────────────────────────────────────
+
+export interface WalletBalance {
+  balance: number;
+  reservedBalance: number;
+  commissionPct: number;
+}
+
+export async function getWalletBalance(): Promise<WalletBalance> {
+  return api.get<WalletBalance>('/wallet/me');
+}
+
+export async function initiateWalletDeposit(params: {
+  amount: number;
+  method: 'ecocash' | 'onemoney' | 'vmc';
+  phone?: string;
+}): Promise<{ transactionId: string; pollUrl: string; redirectUrl: string }> {
+  return api.post<{ transactionId: string; pollUrl: string; redirectUrl: string }>(
+    '/wallet/deposit',
+    params,
+  );
 }
 
 // ─── Push notifications ────────────────────────────────────────────────────────

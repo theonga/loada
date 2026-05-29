@@ -5,7 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useColors, ColorPalette, Radius, Spacing, Typography, Components } from '@constants/theme';
 import type { Job } from '@/types';
 import { Chip } from './Chip';
-import { TONNAGE_LABELS, JobStatus } from '@constants/index';
+import { TONNAGE_LABELS, PAYMENT_METHOD_LABELS, TRUCK_TYPE_LABELS, JobStatus, type PaymentMethod, type TruckType } from '@constants/index';
 
 const BIDDING_STATUSES: string[] = [JobStatus.POSTED, JobStatus.BIDDING, JobStatus.RADIUS_EXPANDED];
 
@@ -78,7 +78,17 @@ export function LoadCard({ job, onPress, myBidPrice }: LoadCardProps) {
 
       <View style={styles.chips}>
         {expired && <Chip variant="red">Expired</Chip>}
-        <Chip variant={expired ? 'default' : 'amber'}>{TONNAGE_LABELS[job.requiredTonnes]}</Chip>
+        <Chip variant={expired ? 'default' : 'amber'}>{TONNAGE_LABELS[job.requiredTonnes] ?? `${job.requiredTonnes}t`}</Chip>
+        {job.requiredTruckType && (
+          <Chip variant="default">
+            {TRUCK_TYPE_LABELS[job.requiredTruckType as TruckType] ?? job.requiredTruckType}
+          </Chip>
+        )}
+        {job.paymentMethod && (
+          <Chip variant="green">
+            {PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod}
+          </Chip>
+        )}
         {job.specialRequirements.map((req) => (
           <Chip key={req} variant={req === 'REFRIGERATED' ? 'blue' : 'default'}>
             {req}

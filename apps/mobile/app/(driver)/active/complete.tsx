@@ -9,10 +9,11 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { useJobStore } from '@store/job.store';
 import { usePhotoUpload } from '@hooks/usePhotoUpload';
 import { confirmDelivery } from '@services';
+import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
 
 export default function JobCompleteScreen() {
   const router = useRouter();
-  const job = useJobStore((s) => s.activeJob);
+  const job = useEnsureActiveJob();
   const setActiveJob = useJobStore((s) => s.setActiveJob);
   const { state: photoState, pickAndUpload } = usePhotoUpload('delivery');
   const [recipient, setRecipient] = useState('');

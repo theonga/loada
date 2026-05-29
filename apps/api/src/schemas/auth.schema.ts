@@ -16,5 +16,6 @@ export const refreshSchema = z.object({
 });
 
 export const updateProfileSchema = z.object({
-  name: z.string().min(1, "Name required").max(100),
+  name: z.string().min(1).max(100).optional(),
+  email: z.string().email("Invalid email").max(200).nullable().optional(),
 });

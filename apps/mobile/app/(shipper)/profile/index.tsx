@@ -21,11 +21,12 @@ type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
 export default function ShipperProfileScreen() {
   const router = useRouter();
-  const { user, logout, updateName } = useAuthStore();
+  const { user, logout, updateName, updateEmail } = useAuthStore();
   const [jobs, setJobs] = useState<Job[]>([]);
 
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
   const [saving, setSaving] = useState(false);
 
   const C = useColors();
@@ -37,28 +38,32 @@ export default function ShipperProfileScreen() {
 
   const startEdit = useCallback(() => {
     setNameInput(user?.name ?? '');
+    setEmailInput(user?.email ?? '');
     setEditing(true);
-  }, [user?.name]);
+  }, [user?.name, user?.email]);
 
   const cancelEdit = useCallback(() => {
     setEditing(false);
     setNameInput('');
+    setEmailInput('');
   }, []);
 
   const saveEdit = useCallback(async () => {
-    const trimmed = nameInput.trim();
-    if (!trimmed || trimmed === user?.name) { cancelEdit(); return; }
+    const nameTrimmed = nameInput.trim();
+    const emailTrimmed = emailInput.trim();
+    if (!nameTrimmed && emailTrimmed === (user?.email ?? '')) { cancelEdit(); return; }
     setSaving(true);
     try {
-      await updateProfile(trimmed);
-      updateName(trimmed);
+      await updateProfile({ name: nameTrimmed || undefined, email: emailTrimmed || null });
+      if (nameTrimmed) updateName(nameTrimmed);
+      updateEmail(emailTrimmed || null);
       setEditing(false);
     } catch {
-      showError('Could not update your name. Please try again.');
+      showError('Could not update your profile. Please try again.');
     } finally {
       setSaving(false);
     }
-  }, [nameInput, user?.name, cancelEdit, updateName]);
+  }, [nameInput, emailInput, user?.email, cancelEdit, updateName, updateEmail]);
 
   const completedJobs = jobs.filter((j) => j.status === JobStatus.COMPLETED).length;
 
@@ -103,47 +108,68 @@ export default function ShipperProfileScreen() {
         keyboardShouldPersistTaps="handled"
       >
 
-        {/* ── Hero card ──────────────────────────────────────────────────────── */}
-        <View style={styles.heroCard}>
-          <Avatar name={user?.name || 'S'} size={72} />
+        {editing ? (
+          /* ── Flat edit form — no card wrapper ──────────────────────────────── */
+          <View style={styles.editFields}>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>FULL NAME</Text>
+              <TextInput
+                style={[styles.fieldInput, { color: C.text.primary }]}
+                value={nameInput}
+                onChangeText={setNameInput}
+                autoFocus
+                autoCapitalize="words"
+                autoCorrect={false}
+                placeholder="Your full name"
+                placeholderTextColor={C.text.tertiary}
+                returnKeyType="next"
+              />
+            </View>
 
-          {editing ? (
-            <View style={styles.editFields}>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>FULL NAME</Text>
-                <TextInput
-                  style={[styles.fieldInput, { color: C.text.primary, borderColor: C.accent, backgroundColor: C.background.elevated }]}
-                  value={nameInput}
-                  onChangeText={setNameInput}
-                  autoFocus
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  placeholder="Your full name"
-                  placeholderTextColor={C.text.tertiary}
-                  returnKeyType="done"
-                  onSubmitEditing={saveEdit}
-                />
-              </View>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>PHONE NUMBER</Text>
-                <View style={[styles.fieldDisplay, { backgroundColor: C.background.elevated, borderColor: C.background.divider }]}>
-                  <Text style={[styles.fieldDisplayText, { color: C.text.secondary }]}>
-                    {user?.phone ?? '—'}
-                  </Text>
-                  <Text style={styles.fieldNote}>Contact support to change</Text>
-                </View>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>PHONE NUMBER</Text>
+              <View style={[styles.fieldDisplay, { backgroundColor: C.background.elevated }]}>
+                <Text style={[styles.fieldDisplayText, { color: C.text.secondary }]}>
+                  {user?.phone ?? '—'}
+                </Text>
+                <Text style={styles.fieldNote}>Contact support to change</Text>
               </View>
             </View>
-          ) : (
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>
+                EMAIL <Text style={styles.fieldOptional}>(optional)</Text>
+              </Text>
+              <TextInput
+                style={[styles.fieldInput, { color: C.text.primary }]}
+                value={emailInput}
+                onChangeText={setEmailInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                placeholder="your@email.com"
+                placeholderTextColor={C.text.tertiary}
+                returnKeyType="done"
+                onSubmitEditing={saveEdit}
+              />
+            </View>
+          </View>
+        ) : (
+          /* ── View mode hero card ──────────────────────────────────────────── */
+          <View style={styles.heroCard}>
+            <Avatar name={user?.name || 'S'} size={72} />
             <View style={styles.heroInfo}>
               <Text style={styles.heroName}>{user?.name || '—'}</Text>
               <Text style={styles.heroPhone}>{user?.phone ?? '—'}</Text>
+              {user?.email ? (
+                <Text style={styles.heroEmail}>{user.email}</Text>
+              ) : null}
               <View style={[styles.roleBadge, { borderColor: C.background.divider, backgroundColor: C.background.elevated }]}>
                 <Text style={[styles.roleBadgeText, { color: C.text.secondary }]}>Shipper</Text>
               </View>
             </View>
-          )}
-        </View>
+          </View>
+        )}
 
         {/* ── Stats ──────────────────────────────────────────────────────────── */}
         {!editing && (
@@ -213,7 +239,6 @@ function getStyles(C: ColorPalette) {
   return StyleSheet.create({
     root: { flex: 1, backgroundColor: C.background.primary },
 
-    // Appbar
     appbar: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -237,9 +262,8 @@ function getStyles(C: ColorPalette) {
       fontWeight: Typography.weights.medium,
     },
 
-    content: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: 40 },
+    content: { padding: Spacing.screenH, gap: 28, paddingBottom: 48 },
 
-    // Hero card
     heroCard: {
       backgroundColor: C.background.card,
       borderRadius: Radius.card,
@@ -250,7 +274,7 @@ function getStyles(C: ColorPalette) {
       paddingHorizontal: Spacing.card,
       gap: 14,
     },
-    heroInfo: { alignItems: 'center', gap: 6 },
+    heroInfo: { alignItems: 'center', gap: 5 },
     heroName: {
       fontSize: Typography.sizes.cardTitle,
       fontWeight: Typography.weights.semibold,
@@ -261,8 +285,12 @@ function getStyles(C: ColorPalette) {
       color: C.text.secondary,
       fontVariant: ['tabular-nums'],
     },
+    heroEmail: {
+      fontSize: Typography.sizes.label,
+      color: C.text.tertiary,
+    },
     roleBadge: {
-      marginTop: 4,
+      marginTop: 6,
       paddingHorizontal: 10,
       paddingVertical: 4,
       borderRadius: Radius.pill,
@@ -274,25 +302,31 @@ function getStyles(C: ColorPalette) {
       letterSpacing: 0.3,
     },
 
-    // Edit fields
-    editFields: { width: '100%', gap: Spacing.gap },
-    fieldGroup: { gap: 6 },
+    // Edit fields — no borders, background colour only
+    editFields: { width: '100%', gap: 20 },
+    fieldGroup: { gap: 7 },
     fieldLabel: {
       fontSize: Typography.sizes.eyebrow,
       fontWeight: '600',
       letterSpacing: 1.2,
       color: C.text.secondary,
     },
+    fieldOptional: {
+      fontSize: Typography.sizes.eyebrow,
+      fontWeight: '400',
+      color: C.text.tertiary,
+      letterSpacing: 0,
+      textTransform: 'none',
+    },
     fieldInput: {
       height: Components.inputHeight,
       borderRadius: Radius.button,
-      borderWidth: 1.5,
+      backgroundColor: C.background.elevated,
       paddingHorizontal: 14,
       fontSize: Typography.sizes.body,
     },
     fieldDisplay: {
       borderRadius: Radius.button,
-      borderWidth: 1,
       paddingHorizontal: 14,
       paddingVertical: 12,
       gap: 2,
@@ -326,7 +360,7 @@ function getStyles(C: ColorPalette) {
     statDivider: { width: 1 },
 
     // Menu
-    section: { gap: 8 },
+    section: { gap: Spacing.gap },
     sectionLabel: {
       fontSize: Typography.sizes.eyebrow,
       fontWeight: '600',
@@ -353,21 +387,15 @@ function getStyles(C: ColorPalette) {
       width: 32, height: 32, borderRadius: 8,
       alignItems: 'center', justifyContent: 'center',
     },
-    menuLabel: {
-      flex: 1,
-      fontSize: Typography.sizes.body,
-      color: C.text.primary,
-    },
+    menuLabel: { flex: 1, fontSize: Typography.sizes.body, color: C.text.primary },
     menuDivider: { height: StyleSheet.hairlineWidth, marginLeft: 56 },
 
-    // Sign out
     signOutBtn: {
       height: Components.buttonHeight,
       borderRadius: Radius.button,
       borderWidth: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      marginTop: Spacing.gap,
     },
     signOutText: {
       fontSize: Typography.sizes.body,

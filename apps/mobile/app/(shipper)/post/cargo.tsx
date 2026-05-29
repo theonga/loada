@@ -10,6 +10,7 @@ import { ProgressBar } from '@components/ui/ProgressBar';
 import { TonnagePicker } from '@components/ui/TonnagePicker';
 import { Chip } from '@components/ui/Chip';
 import { useDraftJobStore } from '@store/draftJob.store';
+import { TONNAGE_TIERS, TRUCK_TYPES, TRUCK_TYPE_LABELS, TRUCK_TYPE_HAS_TONNAGE, type TruckType } from '@constants/index';
 
 const REQUIREMENTS = ['FRAGILE', 'REFRIGERATED', 'OVERSIZED', 'HAZARDOUS'] as const;
 
@@ -18,8 +19,11 @@ export default function PostCargoScreen() {
   const setCargoDraft = useDraftJobStore((s) => s.setCargo);
   const draft = useDraftJobStore((s) => s.draft);
   const [cargo, setCargo] = useState(draft.cargoDescription || '');
+  const [truckType, setTruckType] = useState<TruckType>((draft.requiredTruckType as TruckType) ?? 'TRUCK');
   const [tonnes, setTonnes] = useState(draft.requiredTonnes ?? 1);
   const [reqs, setReqs] = useState<string[]>(draft.specialRequirements || []);
+
+  const hasTonnage = TRUCK_TYPE_HAS_TONNAGE[truckType];
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -56,8 +60,34 @@ export default function PostCargoScreen() {
         </View>
 
         <View style={styles.section}>
+          <Text style={styles.sectionLabel}>VEHICLE TYPE</Text>
+          <View style={styles.typeRow}>
+            {TRUCK_TYPES.map((t) => {
+              const active = truckType === t;
+              return (
+                <Pressable
+                  key={t}
+                  style={[styles.typePill, active && styles.typePillActive]}
+                  onPress={() => setTruckType(t)}
+                >
+                  <Text style={[styles.typePillText, active && styles.typePillTextActive]}>
+                    {TRUCK_TYPE_LABELS[t]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.sectionLabel}>TONNAGE REQUIRED</Text>
-          <TonnagePicker value={tonnes} onChange={setTonnes} />
+          {hasTonnage ? (
+            <TonnagePicker value={tonnes} onChange={setTonnes} />
+          ) : (
+            <View style={styles.standardRow}>
+              <Text style={styles.standardText}>Standard capacity</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -76,7 +106,7 @@ export default function PostCargoScreen() {
         <Pressable
           style={[styles.btn, !cargo && styles.btnDisabled]}
           onPress={() => {
-            setCargoDraft(cargo, tonnes, reqs);
+            setCargoDraft(cargo, truckType, hasTonnage ? tonnes : 1, reqs);
             router.push('/(shipper)/post/pricing');
           }}
           disabled={!cargo}
@@ -108,6 +138,23 @@ function getStyles(C: ColorPalette) {
       minHeight: 80, textAlignVertical: 'top',
     },
     reqs: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.gapSm },
+    typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.gapSm },
+    typePill: {
+      paddingHorizontal: 16, height: Components.pillHeight,
+      borderRadius: Radius.pill, borderWidth: 1,
+      borderColor: C.background.divider, backgroundColor: C.background.elevated,
+      alignItems: 'center', justifyContent: 'center',
+      minWidth: Components.touchMin,
+    },
+    typePillActive: { backgroundColor: C.accent, borderColor: C.accent },
+    typePillText: { fontSize: Typography.sizes.bodySmall, fontWeight: Typography.weights.medium, color: C.text.secondary },
+    typePillTextActive: { color: C.background.primary },
+    standardRow: {
+      backgroundColor: C.background.elevated, borderRadius: Radius.button,
+      borderWidth: 1, borderColor: C.background.divider,
+      paddingHorizontal: 14, paddingVertical: 12,
+    },
+    standardText: { fontSize: Typography.sizes.body, color: C.text.secondary },
     footer: { padding: Spacing.screenH },
     btn: { height: Components.buttonHeight, backgroundColor: C.accent, borderRadius: Radius.button, alignItems: 'center', justifyContent: 'center' },
     btnDisabled: { opacity: 0.5 },

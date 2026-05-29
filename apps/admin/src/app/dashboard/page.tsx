@@ -182,7 +182,7 @@ export default function DashboardPage() {
   })();
 
   const jobStatusData = analytics
-    ? Object.entries(analytics.breakdown.jobsByStatus).map(([name, value]) => ({
+    ? Object.entries(analytics.breakdown.jobsByStatus ?? {}).map(([name, value]) => ({
         name,
         value,
         color: {
@@ -193,15 +193,20 @@ export default function DashboardPage() {
       }))
     : [];
 
-  const subPlanData = analytics
-    ? Object.entries(analytics.breakdown.subsByPlan).map(([name, value]) => ({
+  const walletBandData = analytics
+    ? Object.entries(analytics.breakdown.walletBalanceBands ?? {}).map(([name, value]) => ({
         name,
         value,
-        color: { WEEKLY: C.amber, MONTHLY: C.blue, ANNUAL: C.green }[name] ?? C.text2,
+        color: {
+          "No balance": C.red,
+          "$0.01–$9":   C.amber,
+          "$10–$49":    C.blue,
+          "$50+":       C.green,
+        }[name] ?? C.text2,
       }))
     : [];
 
-  const totalSubsFromBreakdown = subPlanData.reduce((s, r) => s + r.value, 0);
+  const totalWalletsFromBands = walletBandData.reduce((s, r) => s + r.value, 0);
 
   // ── Skeleton rows for loading ──────────────────────────────────────
   const SkeletonCard = () => (
@@ -241,10 +246,10 @@ export default function DashboardPage() {
               sub={stats ? `${stats.totalDrivers} drivers · ${stats.totalShippers} shippers` : undefined}
             />
             <KpiCard
-              label="Active Subscriptions"
-              value={stats ? stats.activeSubscriptions.toLocaleString() : "—"}
-              sub="drivers paying"
-              accent="blue"
+              label="Commission This Month"
+              value={stats ? `$${Number(stats.commissionThisMonth ?? 0).toFixed(2)}` : "—"}
+              sub="from completed jobs"
+              accent="amber"
             />
             <KpiCard
               label="Total Jobs"
@@ -257,10 +262,10 @@ export default function DashboardPage() {
               accent="green"
             />
             <KpiCard
-              label="Total Revenue"
-              value={stats ? `$${Number(stats.totalRevenue).toLocaleString()}` : "—"}
-              sub="all-time paid"
-              accent="amber"
+              label="Wallet Funds Held"
+              value={stats ? `$${Number(stats.totalWalletFunds ?? 0).toFixed(2)}` : "—"}
+              sub={stats ? `$${Number(stats.totalCommissionCollected ?? 0).toFixed(2)} earned all-time` : undefined}
+              accent="blue"
             />
           </>
         )}
@@ -474,24 +479,22 @@ export default function DashboardPage() {
           )}
         </ChartCard>
 
-        {/* Subscription plan mix */}
-        <ChartCard title="Subscription Plans" sub="Active subscriptions by plan tier">
-          {subPlanData.length === 0 ? (
+        {/* Wallet balance distribution */}
+        <ChartCard title="Driver Wallet Balances" sub="How funds are distributed across drivers">
+          {walletBandData.length === 0 ? (
             <div style={{ height: 160, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--color-text-muted)", fontSize: 14 }}>
               {loading ? "Loading…" : "No data"}
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 16, paddingTop: 8 }}>
-              {subPlanData.map((s) => {
-                const pct = totalSubsFromBreakdown > 0 ? Math.round((s.value / totalSubsFromBreakdown) * 100) : 0;
+              {walletBandData.map((s) => {
+                const pct = totalWalletsFromBands > 0 ? Math.round((s.value / totalWalletsFromBands) * 100) : 0;
                 return (
                   <div key={s.name} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 13 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color }} />
-                        <span style={{ color: "var(--color-text-secondary)" }}>
-                          {s.name.charAt(0) + s.name.slice(1).toLowerCase()}
-                        </span>
+                        <span style={{ color: "var(--color-text-secondary)" }}>{s.name}</span>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <span style={{ fontFamily: "DM Mono, monospace", fontVariantNumeric: "tabular-nums", fontWeight: 600, color: "var(--color-text-primary)" }}>

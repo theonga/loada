@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { View, FlatList, Pressable, ScrollView, StyleSheet, RefreshControl } from 'react-native';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { View, FlatList, Pressable, ScrollView, StyleSheet, RefreshControl, AppState } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -10,7 +10,9 @@ import { Skeleton } from '@components/ui/Skeleton';
 import { getAvailableLoads, getDriverActiveJobs, getMyDriverProfile, getMyBids } from '@services';
 import { isAuthError } from '@services/api';
 import { useAuthStore } from '@store/auth.store';
+import { useJobStore } from '@store/job.store';
 import { JobStatus, BidStatus } from '@constants/index';
+import { getSocket } from '@services/socket';
 import type { Job, Bid, DriverProfile } from '@/types';
 
 type TabKey = 'AVAILABLE' | 'BIDS' | 'ACTIVE' | 'HISTORY';
@@ -40,6 +42,7 @@ const HISTORY_STATUSES: JobStatus[] = [
 export default function DriverLoadsScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const setActiveJob = useJobStore((s) => s.setActiveJob);
   const [availableLoads, setAvailableLoads] = useState<Job[]>([]);
   const [myBids, setMyBids] = useState<Bid[]>([]);
   const [driverJobs, setDriverJobs] = useState<Job[]>([]);
@@ -77,6 +80,23 @@ export default function DriverLoadsScreen() {
   }, [user?.id]);
 
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
+
+  // Refresh available loads instantly when a new load is broadcast via Socket.IO
+  useEffect(() => {
+    const socket = getSocket('/jobs');
+    if (!socket.connected) socket.connect();
+    const onNewLoad = () => loadData();
+    socket.on('job:new_load', onNewLoad);
+    return () => { socket.off('job:new_load', onNewLoad); };
+  }, [loadData]);
+
+  // Refresh when app comes back to foreground — catches delayed FCM deliveries
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') loadData();
+    });
+    return () => sub.remove();
+  }, [loadData]);
 
   const displayedJobs = useMemo(() => {
     if (activeTab === 'AVAILABLE') return availableLoads;
@@ -223,6 +243,7 @@ export default function DriverLoadsScreen() {
                 if (activeTab === 'AVAILABLE') {
                   router.push(`/(driver)/loads/${item.id}`);
                 } else if (IN_PROGRESS_STATUSES.includes(item.status)) {
+                  setActiveJob(item);
                   router.push('/(driver)/active/en-route');
                 } else {
                   router.push(`/(driver)/loads/${item.id}`);

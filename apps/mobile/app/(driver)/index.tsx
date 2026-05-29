@@ -13,10 +13,10 @@ import { PulsingRadius } from '@components/ui/PulsingRadius';
 import { useAuthStore } from '@store/auth.store';
 import { useLocationStore } from '@store/location.store';
 import { useJobStore } from '@store/job.store';
+import { useWalletStore } from '@store/wallet.store';
 import { JobStatus } from '@constants/index';
-import { useDriverHeartbeat } from '@hooks/useDriverHeartbeat';
 import { useCurrentLocation } from '@hooks/useCurrentLocation';
-import { getAvailableLoads } from '@services';
+import { getAvailableLoads, getWalletBalance } from '@services';
 import type { Job } from '@/types';
 
 export default function DriverHomeScreen() {
@@ -24,15 +24,21 @@ export default function DriverHomeScreen() {
   const user = useAuthStore((s) => s.user);
   const { isOnline, setOnline, driverLocation } = useLocationStore();
   const activeJob = useJobStore((s) => s.activeJob);
+  const { balance, setWallet, commissionPct } = useWalletStore();
   const firstName = user?.name.split(' ')[0] ?? 'Driver';
   const [nearbyLoads, setNearbyLoads] = useState<Job[]>([]);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  useDriverHeartbeat();
-
   const mapRef = useRef<MapView>(null);
   const { location: currentLocation } = useCurrentLocation();
+
+  // Fetch wallet balance once on mount
+  useEffect(() => {
+    getWalletBalance()
+      .then((w) => setWallet(w.balance, w.reservedBalance, w.commissionPct))
+      .catch(() => {});
+  }, []);
 
   // Fetch available loads whenever online state or location changes
   useEffect(() => {
@@ -100,16 +106,22 @@ export default function DriverHomeScreen() {
             <Text style={styles.greet}>Good morning</Text>
             <Text style={styles.name}>{firstName}</Text>
           </View>
-          <View style={styles.onlineToggle}>
-            <Text style={[styles.onlineLabel, { color: isOnline ? C.status.green : C.text.secondary }]}>
-              {isOnline ? 'Online' : 'Offline'}
-            </Text>
-            <Switch
-              value={isOnline}
-              onValueChange={setOnline}
-              trackColor={{ false: C.background.divider, true: C.status.green + '44' }}
-              thumbColor={isOnline ? C.status.green : C.text.tertiary}
-            />
+          <View style={styles.appbarRight}>
+            <Pressable style={styles.balancePill} onPress={() => router.push('/(driver)/wallet')}>
+              <Ionicons name="wallet-outline" size={13} color={C.accent} />
+              <Text style={styles.balanceText}>${balance.toFixed(2)}</Text>
+            </Pressable>
+            <View style={styles.onlineToggle}>
+              <Text style={[styles.onlineLabel, { color: isOnline ? C.status.green : C.text.secondary }]}>
+                {isOnline ? 'Online' : 'Offline'}
+              </Text>
+              <Switch
+                value={isOnline}
+                onValueChange={setOnline}
+                trackColor={{ false: C.background.divider, true: C.status.green + '44' }}
+                thumbColor={isOnline ? C.status.green : C.text.tertiary}
+              />
+            </View>
           </View>
         </View>
 
@@ -174,6 +186,17 @@ function getStyles(C: ColorPalette) {
     },
     greet: { fontSize: Typography.sizes.chip, color: C.text.secondary },
     name: { fontSize: 16, fontWeight: Typography.weights.semibold, color: C.text.primary },
+    appbarRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+    balancePill: {
+      flexDirection: 'row', alignItems: 'center', gap: 5,
+      backgroundColor: 'rgba(245,166,35,0.12)', borderRadius: Radius.pill,
+      paddingHorizontal: 10, paddingVertical: 5,
+      borderWidth: 1, borderColor: 'rgba(245,166,35,0.25)',
+    },
+    balanceText: {
+      fontSize: Typography.sizes.chip, fontWeight: Typography.weights.semibold,
+      color: C.accent, fontVariant: ['tabular-nums'],
+    },
     onlineToggle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
     onlineLabel: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.medium },
     spacer: { flex: 1 },

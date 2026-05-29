@@ -49,8 +49,16 @@ export function createSocketServer(httpServer: HttpServer) {
   const chatNs = io.of("/chat");
 
   // ── /jobs — job lifecycle events ──────────────────────────────────────────
-  jobsNs.on("connection", (socket: AuthSocket) => {
-    void authenticateSocket(socket);
+  jobsNs.on("connection", async (socket: AuthSocket) => {
+    const ok = await authenticateSocket(socket);
+    if (!ok) { socket.disconnect(true); return; }
+
+    // Auto-join personal room so the server can target this driver directly
+    // e.g. jobsNs.to(`driver:${driverProfileId}`).emit("job:new_load", ...)
+    if (socket.driverProfileId) {
+      socket.join(`driver:${socket.driverProfileId}`);
+    }
+
     socket.on("job:subscribe", ({ jobId }: { jobId: string }) => socket.join(`job:${jobId}`));
     socket.on("job:unsubscribe", ({ jobId }: { jobId: string }) => socket.leave(`job:${jobId}`));
   });

@@ -76,10 +76,10 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.patch("/me", { preHandler: [requireAuth] }, async (req, reply) => {
     try {
-      const { name } = updateProfileSchema.parse(req.body);
+      const { name, email } = updateProfileSchema.parse(req.body);
       const user = (req as unknown as Record<string, { id: string }>)["authUser"];
-      await updateUserProfile(user.id, name);
-      return reply.send({ success: true, data: { name } });
+      await updateUserProfile(user.id, name, email);
+      return reply.send({ success: true, data: { name, email } });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: err.issues[0]?.message ?? "Invalid input" } });

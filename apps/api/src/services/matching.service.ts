@@ -4,6 +4,8 @@ import { radiusExpansionQueue, notificationQueue } from "@/lib/queues";
 import { getSocketServer } from "@/lib/socket";
 import { getNearbyDrivers } from "./location.service";
 import { getConfigNum } from "@/lib/app-config";
+import { releaseCommission } from "./wallet.service";
+import { notifyDriver } from "./notification.service";
 
 export async function expandSearchRadius(jobId: string): Promise<void> {
   const job = await prisma.job.findUnique({ where: { id: jobId } });
@@ -70,6 +72,12 @@ export async function expireBiddingSession(jobId: string): Promise<void> {
   const job = await prisma.job.findUnique({ where: { id: jobId } });
   if (!job || !["POSTED", "BIDDING", "RADIUS_EXPANDED"].includes(job.status)) return;
 
+  // Fetch pending bids to release their reserved commissions
+  const pendingBids = await prisma.bid.findMany({
+    where: { jobId, status: { in: ["PENDING", "COUNTERED"] } },
+    select: { id: true, driverId: true, commissionAmount: true },
+  });
+
   await prisma.$transaction([
     prisma.job.update({ where: { id: jobId }, data: { status: "EXPIRED" } }),
     prisma.bid.updateMany({
@@ -77,6 +85,18 @@ export async function expireBiddingSession(jobId: string): Promise<void> {
       data: { status: "EXPIRED" },
     }),
   ]);
+
+  // Release all reserved commissions (non-blocking)
+  for (const bid of pendingBids) {
+    if (bid.commissionAmount) {
+      releaseCommission(
+        bid.driverId,
+        bid.id,
+        parseFloat(bid.commissionAmount.toString()),
+        "Bid expired — job got no match",
+      ).catch(() => {});
+    }
+  }
 
   const { jobsNs } = getSocketServer();
   jobsNs.to(`job:${jobId}`).emit("job:expired", { jobId });
@@ -88,4 +108,45 @@ export async function expireBiddingSession(jobId: string): Promise<void> {
     title: "No match found",
     body: "Your load didn't get matched. Repost to try again.",
   });
+
+  // Notify drivers who received the new_load push but never placed a bid
+  notifyUnactioned(jobId).catch(() => {});
+}
+
+async function notifyUnactioned(jobId: string): Promise<void> {
+  // Find all userIds who got the new_load notification for this job
+  const notified = await prisma.notification.findMany({
+    where: { jobId, type: "new_load" },
+    select: { userId: true },
+  });
+  if (notified.length === 0) return;
+
+  const notifiedUserIds = notified.map((n) => n.userId);
+
+  // Find all drivers who placed any bid on this job
+  const bidders = await prisma.bid.findMany({
+    where: { jobId },
+    include: { driver: { select: { userId: true } } },
+  });
+  const bidderUserIds = new Set(bidders.map((b) => b.driver.userId));
+
+  // Resolve driverProfile ids for notified users who never bid
+  const unactioned = await prisma.driverProfile.findMany({
+    where: {
+      userId: { in: notifiedUserIds.filter((uid) => !bidderUserIds.has(uid)) },
+    },
+    select: { id: true },
+  });
+  if (unactioned.length === 0) return;
+
+  await Promise.all(
+    unactioned.map((d) =>
+      notifyDriver(
+        d.id,
+        "That load has expired",
+        "The load you were notified about got no match in time. Stay online — another one nearby may be coming your way.",
+        { type: "SYSTEM", jobId },
+      ),
+    ),
+  );
 }

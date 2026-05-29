@@ -5,6 +5,7 @@ import { notifyDriver, notifyShipper } from "./notification.service";
 import { transitionJobStatus } from "./job.service";
 import { smsMatchConfirmedDriver } from "@/lib/bulkit";
 import { getConfigNum } from "@/lib/app-config";
+import { reserveCommission, releaseCommission } from "./wallet.service";
 
 const ACTIVE_JOB_STATUSES = ["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"] as const;
 
@@ -19,23 +20,17 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 }
 
 export async function placeBid(jobId: string, driverId: string, offeredPrice: number) {
-  const [job, driver] = await Promise.all([
+  const [job, driver, commissionPct] = await Promise.all([
     prisma.job.findUnique({ where: { id: jobId }, include: { shipper: { include: { user: true } } } }),
     prisma.driverProfile.findUnique({
       where: { id: driverId },
-      include: { user: true, subscription: true },
+      include: { user: true },
     }),
+    getConfigNum("loada_commission_pct"),
   ]);
 
   if (!job) throw Object.assign(new Error("Job not found"), { statusCode: 404, code: "JOB_NOT_FOUND" });
   if (!driver) throw Object.assign(new Error("Driver not found"), { statusCode: 404, code: "DRIVER_NOT_FOUND" });
-
-  if (!driver.subscription || !["ACTIVE", "TRIAL"].includes(driver.subscription.status)) {
-    throw Object.assign(new Error("Active subscription required to bid"), {
-      statusCode: 403,
-      code: "SUBSCRIPTION_REQUIRED",
-    });
-  }
 
   if (driver.documentStatus !== "APPROVED") {
     throw Object.assign(new Error("Documents must be approved before bidding"), {
@@ -92,10 +87,25 @@ export async function placeBid(jobId: string, driverId: string, offeredPrice: nu
     throw Object.assign(new Error("Job is not accepting bids"), { statusCode: 400, code: "JOB_NOT_ACCEPTING_BIDS" });
   }
 
+  // Calculate commission and reserve from wallet before creating bid
+  const commissionAmount = parseFloat((offeredPrice * commissionPct / 100).toFixed(2));
+
+  // This throws INSUFFICIENT_WALLET_BALANCE if the driver cannot cover the commission
+  await reserveCommission(driverId, "pending", jobId, commissionAmount);
+
   const bid = await prisma.bid.create({
-    data: { jobId, driverId, offeredPrice, status: "PENDING" },
+    data: { jobId, driverId, offeredPrice, status: "PENDING", commissionAmount },
     include: { driver: { include: { user: true } } },
   });
+
+  // Update the wallet transaction with the real bidId now that we have it
+  const wallet = await prisma.driverWallet.findUnique({ where: { driverId } });
+  if (wallet) {
+    await prisma.walletTransaction.updateMany({
+      where: { walletId: wallet.id, bidId: "pending", jobId, type: "COMMISSION_RESERVE" },
+      data: { bidId: bid.id },
+    });
+  }
 
   await redis.incr(`loada:job:${jobId}:bid_count`);
 
@@ -157,12 +167,14 @@ export async function acceptBid(bidId: string, shipperUserId: string) {
     bid,
   });
 
+  const shipperName = updatedJob.shipper.user.name;
+
   // Notifications are fire-and-forget — match is already committed above
   Promise.all([
     notifyDriver(
       bid.driverId,
       "You got the load!",
-      `You got the load! Head to pickup at ${bid.job.originAddress}.`,
+      `${shipperName} accepted your bid! Head to pickup at ${bid.job.originAddress}.`,
       { jobId: bid.jobId },
     ),
     smsMatchConfirmedDriver(bid.driver.user.phone, bid.job.originAddress),
@@ -174,7 +186,7 @@ export async function acceptBid(bidId: string, shipperUserId: string) {
 export async function rejectBid(bidId: string, shipperUserId: string) {
   const bid = await prisma.bid.findUnique({
     where: { id: bidId },
-    include: { job: { include: { shipper: true } } },
+    include: { job: { include: { shipper: { include: { user: true } } } } },
   });
 
   if (!bid) throw Object.assign(new Error("Bid not found"), { statusCode: 404, code: "BID_NOT_FOUND" });
@@ -189,6 +201,20 @@ export async function rejectBid(bidId: string, shipperUserId: string) {
   }
 
   const updated = await prisma.bid.update({ where: { id: bidId }, data: { status: "REJECTED" } });
+
+  // Release reserved commission back to driver's available balance
+  if (bid.commissionAmount) {
+    const commissionAmt = parseFloat(bid.commissionAmount.toString());
+    releaseCommission(bid.driverId, bidId, commissionAmt, "Bid rejected by shipper").catch(() => {});
+  }
+
+  // Notify driver their bid was rejected
+  notifyDriver(
+    bid.driverId,
+    "Bid rejected",
+    `${bid.job.shipper.user.name} passed on your bid for the ${bid.job.originAddress} → ${bid.job.destAddress ?? ""} load.`,
+    { jobId: bid.jobId },
+  ).catch(() => {});
 
   const { jobsNs } = getSocketServer();
   jobsNs.to(`job:${bid.jobId}`).emit("job:bid_status_updated", { bid: updated });

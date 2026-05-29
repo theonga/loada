@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
+import formbody from "@fastify/formbody";
 import rateLimit from "@fastify/rate-limit";
 import helmet from "@fastify/helmet";
 import * as Sentry from "@sentry/node";
@@ -21,6 +22,8 @@ import { adminRoutes } from "@/routes/admin";
 import { uploadRoutes } from "@/routes/uploads";
 import { placesRoutes } from "@/routes/places";
 import { shipperRoutes } from "@/routes/shippers";
+import walletRoutes from "@/routes/wallet";
+import { paymentRoutes } from "@/routes/payments";
 
 export async function buildApp() {
   const app = Fastify({
@@ -36,6 +39,7 @@ export async function buildApp() {
   await app.register(helmet, { contentSecurityPolicy: false });
   await app.register(cors, { origin: true, credentials: true });
   await app.register(cookie);
+  await app.register(formbody);
   await app.register(jwt, {
     secret: process.env.JWT_SECRET!,
     sign: { expiresIn: "15m" },
@@ -70,6 +74,8 @@ export async function buildApp() {
   await app.register(uploadRoutes, { prefix: "/v1/uploads" });
   await app.register(placesRoutes, { prefix: "/v1/places" });
   await app.register(shipperRoutes, { prefix: "/v1/shippers" });
+  await app.register(walletRoutes, { prefix: "/v1/wallet" });
+  await app.register(paymentRoutes, { prefix: "/v1/payments" });
 
   app.get("/health", async () => ({
     status: "ok",

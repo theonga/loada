@@ -84,7 +84,7 @@ const NAV_GROUPS = [
   {
     label: "Platform",
     items: [
-      { href: "/dashboard/subscriptions", label: "Subscriptions",  icon: <IconCard /> },
+      { href: "/dashboard/subscriptions", label: "Wallets",        icon: <IconCard /> },
       { href: "/dashboard/config",        label: "Configuration",  icon: <IconSliders /> },
     ],
   },

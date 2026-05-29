@@ -11,13 +11,18 @@ import { MarketReferenceWidget } from '@components/ui/MarketReferenceWidget';
 import { useDraftJobStore } from '@store/draftJob.store';
 import { getMarketReference } from '@services';
 import type { MarketReference } from '@/types';
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, type PaymentMethod } from '@constants/index';
 
 export default function PostPricingScreen() {
   const router = useRouter();
   const draft = useDraftJobStore((s) => s.draft);
   const setPrice = useDraftJobStore((s) => s.setPrice);
+  const setPaymentMethod = useDraftJobStore((s) => s.setPaymentMethod);
 
   const [price, setRawPrice] = useState(draft.askingPrice ? String(Math.round(draft.askingPrice)) : '');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<PaymentMethod>(
+    (draft.paymentMethod as PaymentMethod) ?? 'CASH'
+  );
   const [isSuggested, setIsSuggested] = useState(false);
   const [marketRef, setMarketRef] = useState<MarketReference | null>(null);
   const [loadingRef, setLoadingRef] = useState(true);
@@ -121,6 +126,28 @@ export default function PostPricingScreen() {
           )}
         </View>
 
+        {/* Payment method */}
+        <View style={styles.paymentBlock}>
+          <Text style={styles.paymentTitle}>How will you pay the driver?</Text>
+          <Text style={styles.paymentSub}>Payment is made directly to the driver after delivery.</Text>
+          <View style={styles.paymentOptions}>
+            {PAYMENT_METHODS.map((method) => {
+              const active = selectedPaymentMethod === method;
+              return (
+                <Pressable
+                  key={method}
+                  style={[styles.paymentOption, active && styles.paymentOptionActive]}
+                  onPress={() => setSelectedPaymentMethod(method)}
+                >
+                  <Text style={[styles.paymentOptionText, active && styles.paymentOptionTextActive]}>
+                    {PAYMENT_METHOD_LABELS[method]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
         {marketRef && (
           <MarketReferenceWidget data={marketRef} userPrice={numPrice} />
         )}
@@ -132,6 +159,7 @@ export default function PostPricingScreen() {
           onPress={() => {
             if (!numPrice) return;
             setPrice(numPrice);
+            setPaymentMethod(selectedPaymentMethod);
             router.push('/(shipper)/post/confirm');
           }}
           disabled={!numPrice}
@@ -199,6 +227,37 @@ function getStyles(C: ColorPalette) {
       textDecorationLine: 'underline',
     },
 
+    paymentBlock: { gap: 10 },
+    paymentTitle: {
+      fontSize: Typography.sizes.body,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.primary,
+    },
+    paymentSub: { fontSize: Typography.sizes.label, color: C.text.secondary },
+    paymentOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.gapSm },
+    paymentOption: {
+      height: Components.pillHeight,
+      paddingHorizontal: 16,
+      borderRadius: Radius.pill,
+      borderWidth: 1,
+      borderColor: C.background.divider,
+      backgroundColor: C.background.elevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    paymentOptionActive: {
+      backgroundColor: 'rgba(245,166,35,0.12)',
+      borderColor: 'rgba(245,166,35,0.40)',
+    },
+    paymentOptionText: {
+      fontSize: Typography.sizes.chip,
+      fontWeight: Typography.weights.medium,
+      color: C.text.secondary,
+    },
+    paymentOptionTextActive: {
+      color: C.accent,
+      fontWeight: Typography.weights.semibold,
+    },
     footer: { padding: Spacing.screenH, paddingBottom: Spacing.screenH },
     btn: {
       height: Components.buttonHeight,

@@ -3,7 +3,9 @@ import { redis } from "@/lib/redis";
 import { bidExpiryQueue, radiusExpansionQueue, notificationQueue } from "@/lib/queues";
 import { getSocketServer } from "@/lib/socket";
 import { getConfigNum } from "@/lib/app-config";
-import type { JobStatus } from "@prisma/client";
+import { notifyDriver } from "./notification.service";
+import { releaseCommission } from "./wallet.service";
+import type { JobStatus, ShipperPaymentMethod, TruckType } from "@prisma/client";
 
 const ACTIVE_JOB_STATUSES: JobStatus[] = [
   "MATCHED",
@@ -17,7 +19,7 @@ const VALID_TRANSITIONS: Partial<Record<JobStatus, JobStatus[]>> = {
   POSTED: ["BIDDING", "CANCELLED"],
   BIDDING: ["RADIUS_EXPANDED", "MATCHED", "CANCELLED", "EXPIRED"],
   RADIUS_EXPANDED: ["MATCHED", "CANCELLED", "EXPIRED"],
-  MATCHED: ["PICKUP_EN_ROUTE", "CANCELLED"],
+  MATCHED: ["PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "CANCELLED"],
   PICKUP_EN_ROUTE: ["PICKUP_ARRIVED"],
   PICKUP_ARRIVED: ["LOADED"],
   LOADED: ["IN_TRANSIT"],
@@ -41,6 +43,8 @@ export interface CreateJobInput {
   specialRequirements: string[];
   askingPrice: number;
   currency: string;
+  requiredTruckType?: TruckType;
+  paymentMethod?: ShipperPaymentMethod;
 }
 
 export async function createJob(shipperId: string, data: CreateJobInput) {
@@ -97,6 +101,8 @@ export async function getAvailableLoads(driverId: string, lat: number, lng: numb
       originAddress: string;
       destAddress: string;
       requiredTonnes: number;
+      requiredTruckType: string;
+      paymentMethod: string;
       askingPrice: string;
       currency: string;
       status: JobStatus;
@@ -147,7 +153,16 @@ export async function getJobById(jobId: string) {
 }
 
 export async function cancelJob(jobId: string, userId: string) {
-  const job = await prisma.job.findUnique({ where: { id: jobId }, include: { shipper: true } });
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      shipper: { include: { user: true } },
+      bids: {
+        where: { status: { in: ["PENDING", "COUNTERED", "ACCEPTED"] } },
+        select: { id: true, driverId: true, commissionAmount: true, status: true },
+      },
+    },
+  });
   if (!job) throw Object.assign(new Error("Job not found"), { statusCode: 404, code: "JOB_NOT_FOUND" });
   if (job.shipper.userId !== userId) {
     throw Object.assign(new Error("Forbidden"), { statusCode: 403, code: "FORBIDDEN" });
@@ -159,8 +174,38 @@ export async function cancelJob(jobId: string, userId: string) {
     });
   }
 
+  const wasMatched = ["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"].includes(job.status);
+
   await prisma.job.update({ where: { id: jobId }, data: { status: "CANCELLED" } });
+  await prisma.bid.updateMany({
+    where: { jobId, status: { in: ["PENDING", "COUNTERED", "ACCEPTED"] } },
+    data: { status: "REJECTED" },
+  });
   await redis.del(`loada:job:${jobId}:status`);
+
+  // Release reserved commissions and notify all affected drivers
+  for (const bid of job.bids) {
+    if (bid.commissionAmount) {
+      releaseCommission(
+        bid.driverId,
+        bid.id,
+        parseFloat(bid.commissionAmount.toString()),
+        wasMatched && bid.status === "ACCEPTED" ? "Job cancelled by shipper after match" : "Job cancelled by shipper",
+      ).catch(() => {});
+    }
+
+    if (wasMatched && bid.status === "ACCEPTED") {
+      notifyDriver(
+        bid.driverId,
+        "Job cancelled",
+        `${job.shipper.user.name} cancelled the job. Your reserved balance has been returned.`,
+        { jobId },
+      ).catch(() => {});
+    }
+  }
+
+  const { jobsNs } = getSocketServer();
+  jobsNs.to(`job:${jobId}`).emit("job:status_changed", { jobId, status: "CANCELLED" });
 }
 
 export async function getShipperJobs(shipperId: string, status?: string) {

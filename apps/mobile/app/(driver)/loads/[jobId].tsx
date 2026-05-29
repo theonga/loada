@@ -13,7 +13,7 @@ import { ScreenError } from '@components/ui/ScreenError';
 import { DARK_MAP_STYLE } from '@components/ui/MapBg';
 import { getJobById } from '@services';
 import { isAuthError } from '@services/api';
-import { TONNAGE_LABELS } from '@constants/index';
+import { TONNAGE_LABELS, TRUCK_TYPE_LABELS, PAYMENT_METHOD_LABELS, type TruckType, type PaymentMethod } from '@constants/index';
 import type { Job } from '@/types';
 
 function decodePolyline(encoded: string): { latitude: number; longitude: number }[] {
@@ -172,6 +172,11 @@ export default function LoadDetailScreen() {
           showsVerticalScrollIndicator={false}
           bounces={false}
         >
+          {/* Posted by */}
+          {job.shipperName ? (
+            <Text style={styles.postedBy}>Posted by {job.shipperName}</Text>
+          ) : null}
+
           {/* Route */}
           <View style={styles.routeSection}>
             <Text style={styles.eyebrow}>ROUTE</Text>
@@ -205,11 +210,41 @@ export default function LoadDetailScreen() {
           <View style={styles.section}>
             <Text style={styles.eyebrow}>CARGO</Text>
             <Text style={styles.cargoDesc}>{job.cargoDescription}</Text>
-            <View style={styles.chips}>
-              <Chip variant="amber">{TONNAGE_LABELS[job.requiredTonnes]}</Chip>
-              {job.specialRequirements.map((r) => (
-                <Chip key={r} variant={r === 'REFRIGERATED' ? 'blue' : 'default'}>{r}</Chip>
-              ))}
+            {job.specialRequirements.length > 0 && (
+              <View style={styles.chips}>
+                {job.specialRequirements.map((r) => (
+                  <Chip key={r} variant={r === 'REFRIGERATED' ? 'blue' : 'default'}>{r}</Chip>
+                ))}
+              </View>
+            )}
+          </View>
+
+          <View style={styles.divider} />
+
+          {/* Vehicle · Capacity · Payment */}
+          <View style={styles.statsStrip}>
+            <View style={styles.statItem}>
+              <Ionicons name="car-outline" size={18} color={C.text.secondary} />
+              <Text style={styles.statValue}>
+                {TRUCK_TYPE_LABELS[job.requiredTruckType as TruckType] ?? job.requiredTruckType ?? 'Truck'}
+              </Text>
+              <Text style={styles.statLabel}>Vehicle</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Ionicons name="cube-outline" size={18} color={C.text.secondary} />
+              <Text style={styles.statValue}>
+                {TONNAGE_LABELS[job.requiredTonnes] ?? `${job.requiredTonnes}t`}
+              </Text>
+              <Text style={styles.statLabel}>Capacity</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Ionicons name="wallet-outline" size={18} color={C.text.secondary} />
+              <Text style={styles.statValue}>
+                {PAYMENT_METHOD_LABELS[job.paymentMethod as PaymentMethod] ?? job.paymentMethod ?? 'Cash'}
+              </Text>
+              <Text style={styles.statLabel}>Payment</Text>
             </View>
           </View>
 
@@ -311,6 +346,26 @@ function getStyles(C: ColorPalette) {
     section: { gap: Spacing.gapSm },
     cargoDesc: { fontSize: Typography.sizes.body, color: C.text.primary },
     chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+
+    // Posted by
+    postedBy: { fontSize: Typography.sizes.label, color: C.text.secondary },
+
+    // Stats strip
+    statsStrip: {
+      flexDirection: 'row',
+      backgroundColor: C.background.elevated,
+      borderRadius: Radius.inner,
+      padding: 12,
+    },
+    statItem: { flex: 1, alignItems: 'center', gap: 4 },
+    statDivider: { width: 1, backgroundColor: C.background.divider },
+    statValue: {
+      fontSize: Typography.sizes.label,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.primary,
+      textAlign: 'center',
+    },
+    statLabel: { fontSize: Typography.sizes.chip, color: C.text.secondary },
 
     // Price section
     priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },

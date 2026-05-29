@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Pressable, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import React, { useState, useMemo } from 'react';
+import { View, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -7,51 +7,55 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { ProgressBar } from '@components/ui/ProgressBar';
 import * as ImagePicker from 'expo-image-picker';
-import { getMySubscription, getPresignedUrl, confirmUpload, updateDriverProfile } from '@services';
+import { getPresignedUrl, confirmUpload, updateDriverProfile } from '@services';
+import { showAlert, showError } from '@components/ui/AppAlert';
 
 type UploadStatus = 'idle' | 'uploading' | 'done' | 'error';
 
+type DocKey =
+  | 'licenceFront'
+  | 'licenceBack'
+  | 'registration'
+  | 'vehicleFront'
+  | 'vehicleSide';
+
 type DocItem = {
-  key: 'licence' | 'registration' | 'photo';
+  key: DocKey;
   title: string;
   desc: string;
   purpose: 'document' | 'truck';
-  profileField: 'licenceUrl' | 'registrationUrl' | 'truckPhotoUrl';
+  profileField: string;
 };
 
 const DOCS: DocItem[] = [
-  { key: 'licence',      title: "Driver's licence",    desc: 'Front and back — must be valid',        purpose: 'document', profileField: 'licenceUrl' },
-  { key: 'registration', title: 'Truck registration',  desc: 'Vehicle registration certificate',      purpose: 'document', profileField: 'registrationUrl' },
-  { key: 'photo',        title: 'Truck photo',         desc: 'Clear photo of the full vehicle',       purpose: 'truck',    profileField: 'truckPhotoUrl' },
+  { key: 'licenceFront', title: "Driver's licence (front)", desc: 'Front side — must be valid and not expired', purpose: 'document', profileField: 'licenceUrl' },
+  { key: 'licenceBack',  title: "Driver's licence (back)",  desc: 'Back side of your driver\'s licence',        purpose: 'document', profileField: 'licenceBackUrl' },
+  { key: 'registration', title: 'Truck registration',       desc: 'Vehicle registration certificate',           purpose: 'document', profileField: 'registrationUrl' },
+  { key: 'vehicleFront', title: 'Vehicle photo (front)',    desc: 'Clear front-facing photo of your truck',     purpose: 'truck',    profileField: 'truckPhotoUrl' },
+  { key: 'vehicleSide',  title: 'Vehicle photo (side)',     desc: 'Full side view of your truck',               purpose: 'truck',    profileField: 'vehicleSidePhotoUrl' },
 ];
+
+const INITIAL_STATUSES: Record<DocKey, UploadStatus> = {
+  licenceFront: 'idle',
+  licenceBack: 'idle',
+  registration: 'idle',
+  vehicleFront: 'idle',
+  vehicleSide: 'idle',
+};
 
 export default function DriverDocumentsScreen() {
   const router = useRouter();
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
-  const [statuses, setStatuses] = useState<Record<string, UploadStatus>>({
-    licence: 'idle', registration: 'idle', photo: 'idle',
-  });
-  const [alreadySubscribed, setAlreadySubscribed] = useState(false);
-
-  useEffect(() => {
-    getMySubscription()
-      .then((sub) => {
-        if (sub?.status === 'ACTIVE' || sub?.status === 'TRIAL') {
-          setAlreadySubscribed(true);
-        }
-      })
-      .catch(() => {});
-  }, []);
+  const [statuses, setStatuses] = useState<Record<DocKey, UploadStatus>>(INITIAL_STATUSES);
 
   const allDone = DOCS.every((d) => statuses[d.key] === 'done');
-  const canContinue = allDone || alreadySubscribed;
 
   async function handleUpload(doc: DocItem) {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow photo access to upload documents.');
+      showAlert({ icon: 'camera-outline', title: 'Permission needed', message: 'Allow photo access to upload documents.', buttons: [{ label: 'OK', variant: 'accent' }] });
       return;
     }
 
@@ -84,7 +88,7 @@ export default function DriverDocumentsScreen() {
       setStatuses((prev) => ({ ...prev, [doc.key]: 'done' }));
     } catch (err) {
       setStatuses((prev) => ({ ...prev, [doc.key]: 'error' }));
-      Alert.alert('Upload failed', (err as Error).message ?? 'Please try again.');
+      showError((err as Error).message ?? 'Please try again.', 'Upload failed');
     }
   }
 
@@ -103,60 +107,67 @@ export default function DriverDocumentsScreen() {
         <Text style={styles.heading}>Your documents</Text>
         <Text style={styles.sub}>We verify these before you can start earning</Text>
 
-        {DOCS.map((doc) => {
-          const st = statuses[doc.key];
-          const isUploading = st === 'uploading';
-          const isDone = st === 'done';
-          const isError = st === 'error';
-          return (
-            <View key={doc.key} style={[styles.docCard, isDone && styles.docCardDone, isError && styles.docCardError]}>
-              <View style={styles.docInfo}>
-                <Text style={styles.docTitle}>{doc.title}</Text>
-                <Text style={styles.docDesc}>{doc.desc}</Text>
-              </View>
-              <Pressable
-                style={[styles.uploadBtn, isDone && styles.uploadBtnDone, isError && styles.uploadBtnError]}
-                onPress={() => handleUpload(doc)}
-                disabled={isUploading}
-              >
-                {isUploading ? (
-                  <ActivityIndicator size="small" color={C.accent} />
-                ) : isDone ? (
-                  <Ionicons name="checkmark" size={18} color={C.status.green} />
-                ) : isError ? (
-                  <Ionicons name="refresh" size={18} color={C.status.red} />
-                ) : (
-                  <Ionicons name="cloud-upload-outline" size={18} color={C.text.secondary} />
-                )}
-              </Pressable>
-            </View>
-          );
-        })}
+        {/* Group: Identity */}
+        <Text style={styles.groupLabel}>IDENTITY</Text>
+        {DOCS.filter((d) => ['licenceFront', 'licenceBack', 'registration'].includes(d.key)).map((doc) =>
+          renderDocCard(doc, statuses[doc.key], () => handleUpload(doc), C, styles)
+        )}
+
+        {/* Group: Vehicle */}
+        <Text style={styles.groupLabel}>VEHICLE</Text>
+        {DOCS.filter((d) => ['vehicleFront', 'vehicleSide'].includes(d.key)).map((doc) =>
+          renderDocCard(doc, statuses[doc.key], () => handleUpload(doc), C, styles)
+        )}
       </ScrollView>
 
       <View style={styles.footer}>
         <Pressable
-          style={[styles.btn, !canContinue && styles.btnDisabled]}
-          onPress={() => {
-            if (alreadySubscribed) {
-              router.replace('/(driver)');
-            } else {
-              router.push('/(auth)/driver-setup/paywall');
-            }
-          }}
-          disabled={!canContinue}
+          style={[styles.btn, !allDone && styles.btnDisabled]}
+          onPress={() => router.push('/(auth)/driver-setup/deposit')}
+          disabled={!allDone}
         >
-          <Text style={styles.btnText}>
-            {alreadySubscribed ? 'Go to Loada' : 'Continue to subscription'}
-          </Text>
+          <Text style={styles.btnText}>Continue</Text>
         </Pressable>
-        {!alreadySubscribed && (
-          <Pressable onPress={() => router.push('/(auth)/driver-setup/paywall')}>
-            <Text style={styles.skip}>Skip for now — upload after subscribing</Text>
-          </Pressable>
-        )}
+        <Pressable onPress={() => router.push('/(auth)/driver-setup/deposit')}>
+          <Text style={styles.skip}>Skip for now — upload after setup</Text>
+        </Pressable>
       </View>
     </SafeAreaView>
+  );
+}
+
+function renderDocCard(
+  doc: DocItem,
+  st: UploadStatus,
+  onPress: () => void,
+  C: ReturnType<typeof import('@constants/theme').useColors>,
+  styles: ReturnType<typeof getStyles>,
+) {
+  const isUploading = st === 'uploading';
+  const isDone = st === 'done';
+  const isError = st === 'error';
+  return (
+    <View key={doc.key} style={[styles.docCard, isDone && styles.docCardDone, isError && styles.docCardError]}>
+      <View style={styles.docInfo}>
+        <Text style={styles.docTitle}>{doc.title}</Text>
+        <Text style={styles.docDesc}>{doc.desc}</Text>
+      </View>
+      <Pressable
+        style={[styles.uploadBtn, isDone && styles.uploadBtnDone, isError && styles.uploadBtnError]}
+        onPress={onPress}
+        disabled={isUploading}
+      >
+        {isUploading ? (
+          <ActivityIndicator size="small" color={C.accent} />
+        ) : isDone ? (
+          <Ionicons name="checkmark" size={18} color={C.status.green} />
+        ) : isError ? (
+          <Ionicons name="refresh" size={18} color={C.status.red} />
+        ) : (
+          <Ionicons name="cloud-upload-outline" size={18} color={C.text.secondary} />
+        )}
+      </Pressable>
+    </View>
   );
 }
 
@@ -167,9 +178,16 @@ function getStyles(C: ColorPalette) {
     closeBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     step: { fontSize: Typography.sizes.label, color: C.text.secondary, fontVariant: ['tabular-nums'] },
     scroll: { flex: 1 },
-    scrollContent: { padding: Spacing.screenH, gap: Spacing.gap },
+    scrollContent: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: 40 },
     heading: { fontSize: Typography.sizes.screenTitle, fontWeight: Typography.weights.bold, color: C.text.primary },
     sub: { fontSize: Typography.sizes.body, color: C.text.secondary },
+    groupLabel: {
+      fontSize: Typography.sizes.eyebrow,
+      fontWeight: Typography.weights.semibold,
+      color: C.text.tertiary,
+      letterSpacing: 1.2,
+      marginTop: Spacing.gapSm,
+    },
     docCard: {
       backgroundColor: C.background.card, borderRadius: Radius.card,
       borderWidth: 1, borderColor: C.background.divider,

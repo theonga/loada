@@ -13,13 +13,32 @@ function getUser(req: object): AuthUser {
 const fcmTokenSchema = z.object({ token: z.string().min(1) });
 
 export async function notificationRoutes(app: FastifyInstance) {
-  // Stub: notifications stored in DB would require a Notification model.
-  // For MVP, notifications are push-only (FCM). This returns an empty list.
-  app.get("/", { preHandler: [requireAuth] }, async (_req, reply) => {
-    return reply.send({ success: true, data: { notifications: [] } });
+  app.get("/", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = getUser(req);
+    const notifications = await prisma.notification.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+    return reply.send({ success: true, data: { notifications } });
   });
 
-  app.patch("/:id/read", { preHandler: [requireAuth] }, async (_req, reply) => {
+  app.patch("/:id/read", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = getUser(req);
+    const { id } = req.params as { id: string };
+    await prisma.notification.updateMany({
+      where: { id, userId: user.id },
+      data: { isRead: true },
+    });
+    return reply.send({ success: true, data: null });
+  });
+
+  app.patch("/read-all", { preHandler: [requireAuth] }, async (req, reply) => {
+    const user = getUser(req);
+    await prisma.notification.updateMany({
+      where: { userId: user.id, isRead: false },
+      data: { isRead: true },
+    });
     return reply.send({ success: true, data: null });
   });
 

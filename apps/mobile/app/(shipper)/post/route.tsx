@@ -102,6 +102,7 @@ type PinTarget = 'pickup' | 'dropoff' | null;
 export default function PostRouteScreen() {
   const router = useRouter();
   const setRoute = useDraftJobStore((s) => s.setRoute);
+  const resetDraft = useDraftJobStore((s) => s.reset);
   const draft = useDraftJobStore((s) => s.draft);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
@@ -133,21 +134,19 @@ export default function PostRouteScreen() {
   // Route polyline
   const [routePoints, setRoutePoints] = useState<{ latitude: number; longitude: number }[]>([]);
 
-  // Selected places
-  const [pickupText, setPickupText] = useState(draft.origin?.address?.split(',')[0] ?? '');
-  const [dropoffText, setDropoffText] = useState(draft.dest?.address?.split(',')[0] ?? '');
-  const [pickupPlace, setPickupPlace] = useState<SelectedPlace | null>(
-    draft.origin?.address ? { address: draft.origin.address, lat: draft.origin.lat, lng: draft.origin.lng } : null,
-  );
-  const [dropoffPlace, setDropoffPlace] = useState<SelectedPlace | null>(
-    draft.dest?.address ? { address: draft.dest.address, lat: draft.dest.lat, lng: draft.dest.lng } : null,
-  );
+  // Selected places — always start blank; draft is reset on mount
+  const [pickupText, setPickupText] = useState('');
+  const [dropoffText, setDropoffText] = useState('');
+  const [pickupPlace, setPickupPlace] = useState<SelectedPlace | null>(null);
+  const [dropoffPlace, setDropoffPlace] = useState<SelectedPlace | null>(null);
 
   // Frequent locations
   const [frequentLocs, setFrequentLocs] = useState<{ pickups: FrequentLocation[]; dropoffs: FrequentLocation[] }>({
     pickups: [],
     dropoffs: [],
   });
+
+  useEffect(() => { resetDraft(); }, []);
 
   useEffect(() => {
     getFrequentLocations().then(setFrequentLocs).catch(() => undefined);

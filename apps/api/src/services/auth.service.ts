@@ -73,8 +73,14 @@ export async function verifyOTPAndLogin(
   return { user, accessToken, refreshToken, isNewUser };
 }
 
-export async function updateUserProfile(userId: string, name: string): Promise<void> {
-  await prisma.user.update({ where: { id: userId }, data: { name } });
+export async function updateUserProfile(userId: string, name?: string, email?: string | null): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      ...(name !== undefined && { name }),
+      ...(email !== undefined && { email: email || null }),
+    },
+  });
 }
 
 export async function generateAccessToken(userId: string, role: string): Promise<string> {

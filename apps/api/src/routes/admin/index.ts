@@ -67,21 +67,24 @@ export async function adminRoutes(app: FastifyInstance) {
   // ── Stats ─────────────────────────────────────────────────────────────────────
 
   app.get("/stats", { preHandler: [requireAdmin] }, async (_req, reply) => {
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+
     const [
       totalUsers, totalDrivers, totalShippers,
-      activeSubscriptions, totalJobs, activeJobs,
-      completedJobsToday, totalRevenue,
-      pendingDocuments,
+      totalJobs, activeJobs,
+      completedJobsToday, pendingDocuments,
+      walletFunds, commissionAllTime, commissionThisMonth,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.driverProfile.count(),
       prisma.shipperProfile.count(),
-      prisma.subscription.count({ where: { status: "ACTIVE" } }),
       prisma.job.count(),
       prisma.job.count({ where: { status: { in: ["POSTED", "BIDDING", "MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"] } } }),
       prisma.job.count({ where: { status: "COMPLETED", updatedAt: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } } }),
-      prisma.subscriptionPayment.aggregate({ where: { status: "PAID" }, _sum: { amount: true } }),
       prisma.driverProfile.count({ where: { documentStatus: "PENDING" } }),
+      prisma.driverWallet.aggregate({ _sum: { balance: true, reservedBalance: true } }),
+      prisma.walletTransaction.aggregate({ where: { type: "COMMISSION_DEDUCT" }, _sum: { amount: true } }),
+      prisma.walletTransaction.aggregate({ where: { type: "COMMISSION_DEDUCT", createdAt: { gte: monthStart } }, _sum: { amount: true } }),
     ]);
 
     return reply.send({
@@ -91,12 +94,13 @@ export async function adminRoutes(app: FastifyInstance) {
           totalUsers,
           totalDrivers,
           totalShippers,
-          activeSubscriptions,
           totalJobs,
           activeJobs,
           completedJobsToday,
-          totalRevenue: Number(totalRevenue._sum.amount ?? 0),
           pendingDocuments,
+          totalWalletFunds: Number(walletFunds._sum.balance ?? 0) + Number(walletFunds._sum.reservedBalance ?? 0),
+          totalCommissionCollected: Number(commissionAllTime._sum.amount ?? 0),
+          commissionThisMonth: Number(commissionThisMonth._sum.amount ?? 0),
         },
       },
     });
@@ -304,14 +308,14 @@ export async function adminRoutes(app: FastifyInstance) {
         ORDER BY 1
       `;
 
-      // Time-series: subscription revenue per period
+      // Time-series: commission revenue per period (deducted from driver wallets)
       const revenueSeries = await prisma.$queryRaw<Array<{ date: Date; amount: unknown }>>`
         SELECT
-          DATE_TRUNC(${trunc}, "paidAt") AS date,
+          DATE_TRUNC(${trunc}, "createdAt") AS date,
           SUM(amount) AS amount
-        FROM "SubscriptionPayment"
-        WHERE status = 'PAID'
-          AND "paidAt" >= ${from} AND "paidAt" <= ${to}
+        FROM "WalletTransaction"
+        WHERE type = 'COMMISSION_DEDUCT'
+          AND "createdAt" >= ${from} AND "createdAt" <= ${to}
         GROUP BY 1
         ORDER BY 1
       `;
@@ -333,11 +337,16 @@ export async function adminRoutes(app: FastifyInstance) {
         _count: { _all: true },
       });
 
-      // Breakdown: subscriptions by plan
-      const subsByPlan = await prisma.subscription.groupBy({
-        by: ["plan"],
-        _count: { _all: true },
-      });
+      // Breakdown: driver wallet balance distribution
+      const walletRows = await prisma.driverWallet.findMany({ select: { balance: true } });
+      const walletBands = { "No balance": 0, "$0.01–$9": 0, "$10–$49": 0, "$50+": 0 };
+      for (const w of walletRows) {
+        const b = Number(w.balance);
+        if (b <= 0) walletBands["No balance"]++;
+        else if (b < 10) walletBands["$0.01–$9"]++;
+        else if (b < 50) walletBands["$10–$49"]++;
+        else walletBands["$50+"]++;
+      }
 
       const fmt = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -361,7 +370,7 @@ export async function adminRoutes(app: FastifyInstance) {
           },
           breakdown: {
             jobsByStatus: Object.fromEntries(jobsByStatus.map((r) => [r.status, r._count._all])),
-            subsByPlan:   Object.fromEntries(subsByPlan.map((r)   => [r.plan,   r._count._all])),
+            walletBalanceBands: walletBands,
           },
         },
       });
@@ -469,6 +478,81 @@ export async function adminRoutes(app: FastifyInstance) {
       });
 
       return reply.send({ success: true, data: { updated: count } });
+    } catch (err) {
+      if (err instanceof ZodError) {
+        return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });
+      }
+      return reply.status(500).send({ success: false, error: { code: "ERROR", message: (err as Error).message } });
+    }
+  });
+
+  // ── Wallets ───────────────────────────────────────────────────────────────────
+
+  app.get("/wallets", { preHandler: [requireAdmin] }, async (req, reply) => {
+    const query = z.object({
+      page:  z.coerce.number().default(1),
+      limit: z.coerce.number().default(50),
+      search: z.string().optional(),
+    }).parse(req.query);
+
+    const userWhere = query.search
+      ? { name: { contains: query.search, mode: "insensitive" as const } }
+      : undefined;
+
+    const [wallets, total] = await Promise.all([
+      prisma.driverWallet.findMany({
+        where: userWhere ? { driver: { user: userWhere } } : {},
+        include: {
+          driver: { include: { user: true } },
+          transactions: { orderBy: { createdAt: "desc" }, take: 5 },
+        },
+        orderBy: { balance: "desc" },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      prisma.driverWallet.count({
+        where: userWhere ? { driver: { user: userWhere } } : {},
+      }),
+    ]);
+
+    return reply.send({ success: true, data: { wallets, total, page: query.page, limit: query.limit } });
+  });
+
+  app.patch("/wallets/:driverId/adjust", { preHandler: [requireAdmin] }, async (req, reply) => {
+    try {
+      const admin = getAdmin(req);
+      const { driverId } = req.params as { driverId: string };
+      const { amount, note } = z.object({
+        amount: z.number().refine((n) => n !== 0, "Amount cannot be zero"),
+        note:   z.string().min(1),
+      }).parse(req.body);
+
+      const wallet = await prisma.driverWallet.findUnique({ where: { driverId } });
+      if (!wallet) {
+        return reply.status(404).send({ success: false, error: { code: "NOT_FOUND", message: "Wallet not found" } });
+      }
+
+      const newBalance = Number(wallet.balance) + amount;
+      if (newBalance < 0) {
+        return reply.status(400).send({ success: false, error: { code: "INSUFFICIENT_BALANCE", message: "Adjustment would result in negative balance" } });
+      }
+
+      const [updated] = await prisma.$transaction([
+        prisma.driverWallet.update({
+          where: { driverId },
+          data:  { balance: newBalance },
+        }),
+        prisma.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            type:     amount > 0 ? "DEPOSIT" : "REFUND",
+            amount:   Math.abs(amount),
+            note:     `Admin adjustment by ${admin.username}: ${note}`,
+          },
+        }),
+      ]);
+
+      return reply.send({ success: true, data: { wallet: updated } });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });

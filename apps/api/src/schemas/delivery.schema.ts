@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const pickupSchema = z.object({
-  photoUri: z.string().min(1),
+  photoUri: z.string().min(1).optional(),
   discrepancyNote: z.string().optional(),
 });
 

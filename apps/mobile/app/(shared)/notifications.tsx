@@ -20,7 +20,7 @@ const NOTIF_ICONS: Record<AppNotification['type'], IoniconName> = {
   MATCH_CONFIRMED: 'flash',
   DRIVER_EN_ROUTE: 'car-outline',
   DELIVERED: 'checkmark-circle',
-  SUBSCRIPTION: 'card-outline',
+  SUBSCRIPTION: 'wallet-outline',
   SYSTEM: 'megaphone-outline',
 };
 
@@ -55,7 +55,7 @@ export default function NotificationsScreen() {
     MATCH_CONFIRMED: C.accent,
     DRIVER_EN_ROUTE: C.status.blue,
     DELIVERED: C.status.green,
-    SUBSCRIPTION: C.text.secondary,
+    SUBSCRIPTION: C.accent,
     SYSTEM: C.text.secondary,
   }), [C]);
 
@@ -123,7 +123,7 @@ export default function NotificationsScreen() {
                     <Text style={styles.chatName} numberOfLines={1}>{otherName}</Text>
                     <Text style={styles.chatRoute} numberOfLines={1}>{route}</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color={C.text.tertiary} />
+                  <Text style={styles.chatTime}>{timeAgo(job.updatedAt)}</Text>
                 </Pressable>
               );
             }
@@ -203,6 +203,11 @@ function getStyles(C: ColorPalette) {
     chatRoute: {
       fontSize: Typography.sizes.chip,
       color: C.text.secondary,
+    },
+    chatTime: {
+      fontSize: Typography.sizes.micro,
+      color: C.text.tertiary,
+      fontVariant: ['tabular-nums'],
     },
 
     // Notification rows

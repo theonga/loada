@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { View, Pressable, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { TextInput } from '@components/ui/TextInput';
 import { Text } from '@components/ui/Text';
 import { useRouter } from 'expo-router';
@@ -7,20 +7,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { TonnagePicker } from '@components/ui/TonnagePicker';
-import { TONNAGE_TIERS } from '@constants/index';
+import { TONNAGE_TIERS, TRUCK_TYPES, TRUCK_TYPE_LABELS, TRUCK_TYPE_HAS_TONNAGE, type TruckType } from '@constants/index';
 import { updateDriverProfile } from '@services';
+import { showError } from '@components/ui/AppAlert';
 
 export default function VehicleSetupScreen() {
   const router = useRouter();
+  const [truckType, setTruckType] = useState<TruckType>('TRUCK');
   const [make, setMake] = useState('');
   const [model, setModel] = useState('');
   const [year, setYear] = useState('');
   const [reg, setReg] = useState('');
-  const [tonnes, setTonnes] = useState<number>(TONNAGE_TIERS[0]);
+  const [tonnes, setTonnes] = useState<number>(10);
   const [loading, setLoading] = useState(false);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
+  const hasTonnage = TRUCK_TYPE_HAS_TONNAGE[truckType];
   const yearNum = parseInt(year, 10);
   const isValid =
     make.trim().length > 0 &&
@@ -35,15 +38,16 @@ export default function VehicleSetupScreen() {
     setLoading(true);
     try {
       await updateDriverProfile({
+        truckType,
         truckMake: make.trim(),
         truckModel: model.trim(),
         truckYear: yearNum,
         truckRegistration: reg.trim().toUpperCase(),
-        capacityTonnes: tonnes as 1 | 2 | 5 | 10 | 20 | 30,
+        capacityTonnes: hasTonnage ? (tonnes as 1 | 1.5 | 2 | 5 | 10 | 20 | 30) : 1,
       });
       router.push('/(auth)/driver-setup/documents');
     } catch (err) {
-      Alert.alert('Could not save', (err as Error).message ?? 'Please try again.');
+      showError((err as Error).message ?? 'Please try again.', 'Could not save');
       setLoading(false);
     }
   }
@@ -57,6 +61,27 @@ export default function VehicleSetupScreen() {
         <Text style={styles.eyebrow}>DRIVER SETUP · 1 OF 3</Text>
         <Text style={styles.heading}>Your truck</Text>
         <Text style={styles.sub}>This determines which loads you'll be matched with.</Text>
+
+        {/* Truck type */}
+        <View style={styles.fieldBlock}>
+          <Text style={styles.label}>Truck type</Text>
+          <View style={styles.typeRow}>
+            {TRUCK_TYPES.map((t) => {
+              const active = truckType === t;
+              return (
+                <Pressable
+                  key={t}
+                  style={[styles.typePill, active && styles.typePillActive]}
+                  onPress={() => setTruckType(t)}
+                >
+                  <Text style={[styles.typePillText, active && styles.typePillTextActive]}>
+                    {TRUCK_TYPE_LABELS[t]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
 
         <View style={styles.row}>
           <View style={styles.rowItem}>
@@ -112,8 +137,17 @@ export default function VehicleSetupScreen() {
           </View>
         </View>
 
-        <Text style={styles.label}>Load capacity</Text>
-        <TonnagePicker value={tonnes} onChange={setTonnes} />
+        {hasTonnage ? (
+          <View style={styles.fieldBlock}>
+            <Text style={styles.label}>Load capacity</Text>
+            <TonnagePicker value={tonnes} onChange={setTonnes} />
+          </View>
+        ) : (
+          <View style={styles.standardCapacity}>
+            <Text style={styles.standardCapacityLabel}>Load capacity</Text>
+            <Text style={styles.standardCapacityValue}>Standard</Text>
+          </View>
+        )}
 
         <Pressable
           style={[styles.btn, (!isValid || loading) && styles.btnDisabled]}
@@ -137,9 +171,34 @@ function getStyles(C: ColorPalette) {
     eyebrow: { fontSize: Typography.sizes.eyebrow, fontWeight: Typography.weights.semibold, color: C.text.secondary, letterSpacing: 1.2 },
     heading: { fontSize: Typography.sizes.heading, fontWeight: Typography.weights.bold, color: C.text.primary },
     sub: { fontSize: Typography.sizes.body, color: C.text.secondary, marginTop: -4 },
+    fieldBlock: { gap: 8 },
+    label: { fontSize: Typography.sizes.label, color: C.text.secondary },
+    typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.gapSm },
+    typePill: {
+      height: Components.pillHeight,
+      paddingHorizontal: 16,
+      borderRadius: Radius.pill,
+      borderWidth: 1,
+      borderColor: C.background.divider,
+      backgroundColor: C.background.elevated,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    typePillActive: {
+      backgroundColor: 'rgba(245,166,35,0.12)',
+      borderColor: 'rgba(245,166,35,0.40)',
+    },
+    typePillText: {
+      fontSize: Typography.sizes.chip,
+      fontWeight: Typography.weights.medium,
+      color: C.text.secondary,
+    },
+    typePillTextActive: {
+      color: C.accent,
+      fontWeight: Typography.weights.semibold,
+    },
     row: { flexDirection: 'row', gap: Spacing.gap },
     rowItem: { flex: 1, gap: 6 },
-    label: { fontSize: Typography.sizes.label, color: C.text.secondary },
     input: {
       height: Components.inputHeight,
       backgroundColor: C.background.elevated,
@@ -148,6 +207,24 @@ function getStyles(C: ColorPalette) {
       borderColor: C.background.divider,
       paddingHorizontal: Spacing.card,
       fontSize: Typography.sizes.body,
+      color: C.text.primary,
+    },
+    standardCapacity: {
+      backgroundColor: C.background.elevated,
+      borderRadius: Radius.button,
+      paddingHorizontal: Spacing.card,
+      paddingVertical: 14,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    standardCapacityLabel: {
+      fontSize: Typography.sizes.body,
+      color: C.text.secondary,
+    },
+    standardCapacityValue: {
+      fontSize: Typography.sizes.body,
+      fontWeight: Typography.weights.semibold,
       color: C.text.primary,
     },
     btn: {

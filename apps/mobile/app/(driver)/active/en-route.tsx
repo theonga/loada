@@ -6,9 +6,12 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import MapView, { PROVIDER_GOOGLE, Marker, Polyline } from 'react-native-maps';
+import * as Location from 'expo-location';
 import { DARK_MAP_STYLE } from '@components/ui/MapBg';
 import { useJobStore } from '@store/job.store';
 import { useLocationStore } from '@store/location.store';
+import { updateJobStatus } from '@services';
+import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371;
@@ -53,11 +56,17 @@ async function fetchRoute(
 
 export default function EnRouteScreen() {
   const router = useRouter();
-  const job = useJobStore((s) => s.activeJob);
+  const job = useEnsureActiveJob();
+  const setActiveJob = useJobStore((s) => s.setActiveJob);
   const driverLoc = useLocationStore((s) => s.driverLocation);
+  const setDriverLocation = useLocationStore((s) => s.setDriverLocation);
   const [routePoints, setRoutePoints] = useState<{ latitude: number; longitude: number }[]>([]);
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [arriving, setArriving] = useState(false);
   const mapRef = useRef<MapView | null>(null);
+  const lastFetchPos = useRef<{ lat: number; lng: number } | null>(null);
+  const mapExpandedRef = useRef(mapExpanded);
+  mapExpandedRef.current = mapExpanded;
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -65,32 +74,57 @@ export default function EnRouteScreen() {
     driverLoc && job
       ? haversineKm(driverLoc.lat, driverLoc.lng, job.originLat, job.originLng)
       : null;
-  const etaMin = distanceKm != null ? Math.round((distanceKm / 50) * 60) : null;
+  const etaMin = distanceKm != null ? Math.max(1, Math.round((distanceKm / 50) * 60)) : null;
 
+  // Track driver's own GPS directly — active while this screen is mounted
+  useEffect(() => {
+    let sub: Location.LocationSubscription | null = null;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setDriverLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, heading: pos.coords.heading ?? undefined });
+        sub = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 6000, distanceInterval: 30 },
+          (loc) => setDriverLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading ?? undefined }),
+        );
+      } catch {
+        // permission denied or GPS unavailable — map renders without live driver dot
+      }
+    })();
+    return () => { sub?.remove(); };
+  }, []);
+
+  // Fetch route from Google Directions — re-fetches only when driver moves > 300m
   useEffect(() => {
     if (!job) return;
-    const originLat = job.originLat;
-    const originLng = job.originLng;
-    const fromLat = driverLoc?.lat ?? originLat - 0.05;
-    const fromLng = driverLoc?.lng ?? originLng - 0.05;
+    const fromLat = driverLoc?.lat ?? job.originLat - 0.05;
+    const fromLng = driverLoc?.lng ?? job.originLng - 0.05;
 
-    fetchRoute(fromLat, fromLng, originLat, originLng)
+    if (
+      lastFetchPos.current &&
+      haversineKm(fromLat, fromLng, lastFetchPos.current.lat, lastFetchPos.current.lng) < 0.3
+    ) return;
+
+    lastFetchPos.current = { lat: fromLat, lng: fromLng };
+
+    fetchRoute(fromLat, fromLng, job.originLat, job.originLng)
       .then((pts) => {
         setRoutePoints(pts);
         setTimeout(() => {
           mapRef.current?.fitToCoordinates(pts, {
-            edgePadding: { top: 100, right: 60, bottom: mapExpanded ? 100 : 320, left: 60 },
+            edgePadding: { top: 100, right: 60, bottom: mapExpandedRef.current ? 100 : 320, left: 60 },
             animated: true,
           });
         }, 400);
       })
       .catch(() => {
-        if (driverLoc) {
-          setRoutePoints([
-            { latitude: driverLoc.lat, longitude: driverLoc.lng },
-            { latitude: originLat, longitude: originLng },
-          ]);
-        }
+        lastFetchPos.current = null;
+        setRoutePoints([
+          { latitude: fromLat, longitude: fromLng },
+          { latitude: job.originLat, longitude: job.originLng },
+        ]);
       });
   }, [job?.id, driverLoc?.lat, driverLoc?.lng]);
 
@@ -203,10 +237,23 @@ export default function EnRouteScreen() {
               </View>
 
               <Pressable
-                style={styles.arrivedBtn}
-                onPress={() => router.replace('/(driver)/active/pickup')}
+                style={[styles.arrivedBtn, arriving && { opacity: 0.6 }]}
+                disabled={arriving}
+                onPress={async () => {
+                  if (!job) return;
+                  setArriving(true);
+                  try {
+                    const updated = await updateJobStatus(job.id, 'PICKUP_ARRIVED');
+                    setActiveJob(updated);
+                    router.replace('/(driver)/active/pickup');
+                  } catch {
+                    setArriving(false);
+                  }
+                }}
               >
-                <Text style={styles.arrivedBtnText}>I've arrived at pickup</Text>
+                <Text style={styles.arrivedBtnText}>
+                  {arriving ? 'Updating…' : "I've arrived at pickup"}
+                </Text>
               </Pressable>
             </View>
           </>

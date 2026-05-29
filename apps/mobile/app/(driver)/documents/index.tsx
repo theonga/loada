@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { View, Pressable, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
+import { View, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { Text } from '@components/ui/Text';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -9,9 +9,36 @@ import { Chip } from '@components/ui/Chip';
 import { Skeleton } from '@components/ui/Skeleton';
 import * as ImagePicker from 'expo-image-picker';
 import { getMyDriverProfile, updateDriverProfile, getPresignedUrl, confirmUpload } from '@services';
+import { showAlert, showError } from '@components/ui/AppAlert';
 import type { DriverProfile } from '@/types';
 
-type DocType = 'licence' | 'registration';
+type DocKey =
+  | 'licenceFront'
+  | 'licenceBack'
+  | 'registration'
+  | 'vehicleFront'
+  | 'vehicleSide';
+
+interface DocItem {
+  key: DocKey;
+  label: string;
+  purpose: 'document' | 'truck';
+  profileField: keyof DriverProfile;
+  expiryField?: keyof DriverProfile;
+}
+
+const DOCS: DocItem[] = [
+  { key: 'licenceFront', label: "Driver's licence (front)", purpose: 'document', profileField: 'licenceUrl',      expiryField: 'licenceExpiry' },
+  { key: 'licenceBack',  label: "Driver's licence (back)",  purpose: 'document', profileField: 'licenceBackUrl' },
+  { key: 'registration', label: 'Truck registration',       purpose: 'document', profileField: 'registrationUrl', expiryField: 'registrationExpiry' },
+  { key: 'vehicleFront', label: 'Vehicle photo (front)',    purpose: 'truck',    profileField: 'truckPhotoUrl' },
+  { key: 'vehicleSide',  label: 'Vehicle photo (side)',     purpose: 'truck',    profileField: 'vehicleSidePhotoUrl' },
+];
+
+const GROUPS: { label: string; keys: DocKey[] }[] = [
+  { label: 'IDENTITY', keys: ['licenceFront', 'licenceBack', 'registration'] },
+  { label: 'VEHICLE',  keys: ['vehicleFront', 'vehicleSide'] },
+];
 
 export default function DocumentsScreen() {
   const router = useRouter();
@@ -20,7 +47,7 @@ export default function DocumentsScreen() {
 
   const [driver, setDriver] = useState<DriverProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState<DocType | null>(null);
+  const [uploading, setUploading] = useState<DocKey | null>(null);
 
   useEffect(() => {
     getMyDriverProfile()
@@ -35,14 +62,19 @@ export default function DocumentsScreen() {
   }
 
   function formatExpiry(isoDate?: string) {
-    if (!isoDate) return 'No expiry on file';
+    if (!isoDate) return null;
     return `Expires ${new Date(isoDate).toLocaleDateString()}`;
   }
 
-  async function handleUpload(docType: DocType) {
+  async function handleUpload(doc: DocItem) {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission needed', 'Allow photo access to upload documents.');
+      showAlert({
+        icon: 'camera-outline',
+        title: 'Permission needed',
+        message: 'Allow photo access to upload documents.',
+        buttons: [{ label: 'OK', variant: 'accent' }],
+      });
       return;
     }
 
@@ -56,11 +88,10 @@ export default function DocumentsScreen() {
 
     const asset = result.assets[0];
     const mimeType = asset.mimeType ?? 'image/jpeg';
-    const purpose = 'document';
 
-    setUploading(docType);
+    setUploading(doc.key);
     try {
-      const { presignedUrl, s3Key } = await getPresignedUrl(purpose, mimeType);
+      const { presignedUrl, s3Key } = await getPresignedUrl(doc.purpose, mimeType);
 
       const uploadRes = await fetch(presignedUrl, {
         method: 'PUT',
@@ -71,25 +102,19 @@ export default function DocumentsScreen() {
       if (!uploadRes.ok) throw new Error('Upload failed');
 
       const { url } = await confirmUpload(s3Key);
-
-      const patch = docType === 'licence'
-        ? { licenceUrl: url }
-        : { registrationUrl: url };
-
-      await updateDriverProfile(patch);
+      await updateDriverProfile({ [doc.profileField]: url });
       const updated = await getMyDriverProfile();
       setDriver(updated);
     } catch (err) {
-      Alert.alert('Upload failed', (err as Error).message ?? 'Please try again.');
+      showError((err as Error).message ?? 'Please try again.', 'Upload failed');
     } finally {
       setUploading(null);
     }
   }
 
-  const docs: { type: DocType; label: string; url?: string; expiry?: string }[] = [
-    { type: 'licence', label: "Driver's licence", url: driver?.licenceUrl, expiry: driver?.licenceExpiry },
-    { type: 'registration', label: 'Truck registration', url: driver?.registrationUrl, expiry: driver?.registrationExpiry },
-  ];
+  const uploadedCount = driver
+    ? DOCS.filter((d) => !!driver[d.profileField]).length
+    : 0;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -106,75 +131,128 @@ export default function DocumentsScreen() {
         {!loading && driver && (
           <View style={styles.statusCard}>
             <Ionicons
-              name={driver.documentStatus === 'APPROVED' ? 'checkmark-circle' : driver.documentStatus === 'REJECTED' ? 'close-circle' : 'time-outline'}
+              name={
+                driver.documentStatus === 'APPROVED' ? 'checkmark-circle' :
+                driver.documentStatus === 'REJECTED' ? 'close-circle' : 'time-outline'
+              }
               size={20}
-              color={driver.documentStatus === 'APPROVED' ? C.status.green : driver.documentStatus === 'REJECTED' ? C.status.red : C.status.amber}
+              color={
+                driver.documentStatus === 'APPROVED' ? C.status.green :
+                driver.documentStatus === 'REJECTED' ? C.status.red : C.status.amber
+              }
             />
             <View style={{ flex: 1 }}>
-              <Text style={styles.statusLabel}>Verification status</Text>
+              <Text style={styles.statusLabel}>
+                Verification status · {uploadedCount}/{DOCS.length} uploaded
+              </Text>
               <Text style={styles.statusSub}>
                 {driver.documentStatus === 'APPROVED'
                   ? 'Your documents are verified. You can bid on loads.'
                   : driver.documentStatus === 'REJECTED'
-                    ? 'Documents rejected. Please re-upload clear photos.'
+                    ? 'Documents rejected. Re-upload clear, well-lit photos.'
                     : driver.documentStatus === 'UNDER_REVIEW'
-                      ? 'Under review. Usually takes 1–2 business days.'
-                      : 'Upload your documents to start bidding on loads.'}
+                      ? 'Under review — usually 1–2 business days.'
+                      : 'Upload all documents below to start bidding on loads.'}
               </Text>
             </View>
-            <Chip variant={driver.documentStatus === 'APPROVED' ? 'green' : driver.documentStatus === 'REJECTED' ? 'red' : 'amber'}>
+            <Chip
+              variant={
+                driver.documentStatus === 'APPROVED' ? 'green' :
+                driver.documentStatus === 'REJECTED' ? 'red' : 'amber'
+              }
+            >
               {driver.documentStatus}
             </Chip>
           </View>
         )}
 
-        {/* Document cards */}
         {loading ? (
-          [1, 2].map((i) => <Skeleton key={i} width="100%" height={88} borderRadius={12} />)
+          [1, 2, 3, 4, 5].map((i) => (
+            <Skeleton key={i} width="100%" height={72} borderRadius={12} />
+          ))
         ) : (
-          docs.map((doc) => {
-            const warn = expiryWarning(doc.expiry);
-            const isUploading = uploading === doc.type;
-            return (
-              <View key={doc.type} style={[styles.docCard, warn && { borderColor: C.status.amber }]}>
-                <View style={styles.docIconBox}>
-                  <Ionicons
-                    name={doc.url ? 'document-text' : 'document-text-outline'}
-                    size={24}
-                    color={doc.url ? C.accent : C.text.tertiary}
-                  />
-                </View>
-                <View style={styles.docInfo}>
-                  <Text style={styles.docLabel}>{doc.label}</Text>
-                  <View style={styles.docExpiryRow}>
-                    {warn && <Ionicons name="warning-outline" size={12} color={C.status.amber} />}
-                    <Text style={[styles.docExpiry, warn && { color: C.status.amber }]}>
-                      {doc.url ? formatExpiry(doc.expiry) : 'Not uploaded'}
-                    </Text>
+          GROUPS.map((group) => (
+            <View key={group.label} style={styles.group}>
+              <Text style={styles.groupLabel}>{group.label}</Text>
+              {group.keys.map((key) => {
+                const doc = DOCS.find((d) => d.key === key)!;
+                const url = driver?.[doc.profileField] as string | undefined;
+                const expiry = doc.expiryField ? driver?.[doc.expiryField] as string | undefined : undefined;
+                const warn = expiryWarning(expiry);
+                const isUploading = uploading === key;
+                const expiryText = formatExpiry(expiry);
+
+                return (
+                  <View
+                    key={key}
+                    style={[
+                      styles.docCard,
+                      url && styles.docCardUploaded,
+                      warn && { borderColor: C.status.amber },
+                    ]}
+                  >
+                    <View style={[styles.docIconBox, url && { backgroundColor: 'rgba(245,166,35,0.10)' }]}>
+                      <Ionicons
+                        name={url ? 'document-text' : 'document-text-outline'}
+                        size={22}
+                        color={url ? C.accent : C.text.tertiary}
+                      />
+                    </View>
+                    <View style={styles.docInfo}>
+                      <Text style={styles.docLabel}>{doc.label}</Text>
+                      <View style={styles.docMeta}>
+                        {url ? (
+                          <>
+                            <Ionicons name="checkmark-circle" size={12} color={C.status.green} />
+                            <Text style={[styles.docSub, { color: C.status.green }]}>Uploaded</Text>
+                            {warn && expiryText && (
+                              <>
+                                <Text style={[styles.docSub, { color: C.text.tertiary }]}>·</Text>
+                                <Ionicons name="warning-outline" size={12} color={C.status.amber} />
+                                <Text style={[styles.docSub, { color: C.status.amber }]}>{expiryText}</Text>
+                              </>
+                            )}
+                            {!warn && expiryText && (
+                              <>
+                                <Text style={[styles.docSub, { color: C.text.tertiary }]}>·</Text>
+                                <Text style={styles.docSub}>{expiryText}</Text>
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <Text style={[styles.docSub, { color: C.text.tertiary }]}>Not uploaded</Text>
+                        )}
+                      </View>
+                    </View>
+                    <Pressable
+                      style={[styles.uploadChip, isUploading && { opacity: 0.6 }]}
+                      onPress={() => handleUpload(doc)}
+                      disabled={isUploading || uploading !== null}
+                    >
+                      {isUploading ? (
+                        <ActivityIndicator size="small" color={C.accent} />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name={url ? 'refresh' : 'cloud-upload-outline'}
+                            size={14}
+                            color={C.accent}
+                          />
+                          <Text style={styles.uploadChipText}>{url ? 'Replace' : 'Upload'}</Text>
+                        </>
+                      )}
+                    </Pressable>
                   </View>
-                </View>
-                <Pressable
-                  style={[styles.uploadChip, isUploading && { opacity: 0.6 }]}
-                  onPress={() => handleUpload(doc.type)}
-                  disabled={isUploading || uploading !== null}
-                >
-                  {isUploading
-                    ? <ActivityIndicator size="small" color={C.accent} />
-                    : <>
-                        <Ionicons name={doc.url ? 'refresh' : 'cloud-upload-outline'} size={14} color={C.accent} />
-                        <Text style={styles.uploadChipText}>{doc.url ? 'Replace' : 'Upload'}</Text>
-                      </>
-                  }
-                </Pressable>
-              </View>
-            );
-          })
+                );
+              })}
+            </View>
+          ))
         )}
 
         <View style={styles.infoCard}>
           <Ionicons name="information-circle-outline" size={16} color={C.text.tertiary} />
           <Text style={styles.infoText}>
-            Upload clear, well-lit photos of your documents. Verification takes 1–2 business days.
+            Upload clear, well-lit photos. Documents are reviewed by Loada staff within 1–2 business days. Re-upload if any are rejected.
           </Text>
         </View>
       </ScrollView>
@@ -182,28 +260,62 @@ export default function DocumentsScreen() {
   );
 }
 
-function getStyles(C: ReturnType<typeof useColors>) {
+function getStyles(C: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: C.background.primary },
-    appbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: Spacing.screenH, height: 56 },
+    appbar: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingHorizontal: Spacing.screenH, height: 56,
+    },
     backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     title: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
-    content: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: Spacing.section },
+    content: { padding: Spacing.screenH, gap: Spacing.gap, paddingBottom: 48 },
 
-    statusCard: { backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider, padding: Spacing.card, flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+    statusCard: {
+      backgroundColor: C.background.card, borderRadius: Radius.card,
+      borderWidth: 1, borderColor: C.background.divider,
+      padding: Spacing.card, flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    },
     statusLabel: { fontSize: Typography.sizes.label, fontWeight: Typography.weights.semibold, color: C.text.primary, marginBottom: 2 },
     statusSub: { fontSize: Typography.sizes.chip, color: C.text.secondary, lineHeight: 18 },
 
-    docCard: { backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider, padding: Spacing.card, flexDirection: 'row', alignItems: 'center', gap: Spacing.gap, minHeight: Components.touchMin },
-    docIconBox: { width: 40, height: 40, borderRadius: Radius.inner, backgroundColor: C.background.elevated, alignItems: 'center', justifyContent: 'center' },
-    docInfo: { flex: 1, gap: 3 },
+    group: { gap: Spacing.gapSm },
+    groupLabel: {
+      fontSize: Typography.sizes.eyebrow, fontWeight: Typography.weights.semibold,
+      color: C.text.tertiary, letterSpacing: 1.2, paddingLeft: 4,
+    },
+
+    docCard: {
+      backgroundColor: C.background.card, borderRadius: Radius.card,
+      borderWidth: 1, borderColor: C.background.divider,
+      padding: Spacing.card, flexDirection: 'row', alignItems: 'center',
+      gap: Spacing.gap, minHeight: Components.touchMin,
+    },
+    docCardUploaded: { borderColor: 'rgba(245,166,35,0.20)' },
+    docIconBox: {
+      width: 40, height: 40, borderRadius: Radius.inner,
+      backgroundColor: C.background.elevated,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    docInfo: { flex: 1, gap: 4 },
     docLabel: { fontSize: Typography.sizes.body, fontWeight: Typography.weights.semibold, color: C.text.primary },
-    docExpiryRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    docExpiry: { fontSize: Typography.sizes.chip, color: C.text.secondary },
-    uploadChip: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(245,166,35,0.10)', borderRadius: Radius.button, borderWidth: 1, borderColor: 'rgba(245,166,35,0.25)', paddingHorizontal: 10, paddingVertical: 6, minWidth: 72, justifyContent: 'center' },
+    docMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' },
+    docSub: { fontSize: Typography.sizes.chip, color: C.text.secondary },
+
+    uploadChip: {
+      flexDirection: 'row', alignItems: 'center', gap: 4,
+      backgroundColor: 'rgba(245,166,35,0.10)', borderRadius: Radius.button,
+      borderWidth: 1, borderColor: 'rgba(245,166,35,0.25)',
+      paddingHorizontal: 10, paddingVertical: 6,
+      minWidth: 76, justifyContent: 'center',
+    },
     uploadChipText: { fontSize: Typography.sizes.chip, color: C.accent, fontWeight: Typography.weights.medium },
 
-    infoCard: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: C.background.card, borderRadius: Radius.card, borderWidth: 1, borderColor: C.background.divider, padding: Spacing.card },
+    infoCard: {
+      flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+      backgroundColor: C.background.card, borderRadius: Radius.card,
+      borderWidth: 1, borderColor: C.background.divider, padding: Spacing.card,
+    },
     infoText: { flex: 1, fontSize: Typography.sizes.chip, color: C.text.secondary, lineHeight: 18 },
-  } as const);
+  });
 }

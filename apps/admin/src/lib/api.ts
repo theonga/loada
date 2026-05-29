@@ -97,6 +97,15 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  getWallets: (params?: WalletQuery) =>
+    request<PaginatedWallets>(`/wallets?${new URLSearchParams(params as Record<string, string>)}`),
+
+  adjustWallet: (driverId: string, amount: number, note: string) =>
+    request<{ wallet: WalletRecord }>(`/wallets/${driverId}/adjust`, {
+      method: "PATCH",
+      body: JSON.stringify({ amount, note }),
+    }),
+
   getAnalytics: (params: AnalyticsQuery) =>
     request<AnalyticsData>(`/analytics?${new URLSearchParams(params as Record<string, string>)}`),
 
@@ -122,12 +131,13 @@ export interface AdminStats {
   totalUsers: number;
   totalDrivers: number;
   totalShippers: number;
-  activeSubscriptions: number;
   totalJobs: number;
   activeJobs: number;
   completedJobsToday: number;
-  totalRevenue: number;
   pendingDocuments: number;
+  totalWalletFunds: number;
+  totalCommissionCollected: number;
+  commissionThisMonth: number;
 }
 
 export interface ConfigEntry {
@@ -168,6 +178,25 @@ export interface DriverRecord {
   subscription?: { status: string; plan: string; currentPeriodEnd: string } | null;
 }
 
+export interface WalletTxRecord {
+  id: string;
+  type: string;
+  amount: string;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface WalletRecord {
+  id: string;
+  driverId: string;
+  balance: string;
+  reservedBalance: string;
+  createdAt: string;
+  updatedAt: string;
+  driver: { user: UserRecord };
+  transactions: WalletTxRecord[];
+}
+
 export interface JobRecord {
   id: string;
   originAddress: string;
@@ -194,11 +223,13 @@ interface UserQuery { page?: string; limit?: string; role?: string; search?: str
 interface DriverQuery { page?: string; limit?: string; documentStatus?: string }
 interface JobQuery { page?: string; limit?: string; status?: string }
 interface SubscriptionQuery { page?: string; limit?: string; status?: string }
+interface WalletQuery { page?: string; limit?: string; search?: string }
 
 interface PaginatedUsers { users: UserRecord[]; total: number; page: number; limit: number }
 interface PaginatedDrivers { drivers: DriverRecord[]; total: number; page: number; limit: number }
 interface PaginatedJobs { jobs: JobRecord[]; total: number; page: number; limit: number }
 interface PaginatedSubscriptions { subscriptions: SubscriptionRecord[]; total: number; page: number; limit: number }
+interface PaginatedWallets { wallets: WalletRecord[]; total: number; page: number; limit: number }
 
 export interface AnalyticsQuery {
   from?:        string;
@@ -213,7 +244,7 @@ export interface AnalyticsData {
     users:   Array<{ date: string; newUsers: number }>;
   };
   breakdown: {
-    jobsByStatus: Record<string, number>;
-    subsByPlan:   Record<string, number>;
+    jobsByStatus:      Record<string, number>;
+    walletBalanceBands: Record<string, number>;
   };
 }

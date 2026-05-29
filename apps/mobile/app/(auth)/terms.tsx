@@ -34,7 +34,7 @@ export default function TermsAcceptanceScreen() {
     if (role === 'driver') {
       router.replace('/(auth)/driver-setup/vehicle');
     } else {
-      router.replace('/(shipper)');
+      router.replace('/(auth)/shipper-setup');
     }
   }
 
@@ -54,7 +54,7 @@ export default function TermsAcceptanceScreen() {
           <View style={styles.noteCard}>
             <Ionicons name="information-circle-outline" size={16} color={C.accent} style={{ marginTop: 1 }} />
             <Text style={styles.noteText}>
-              As a driver, the Terms of Use also cover your subscription, document requirements, and conduct obligations.
+              As a driver, the Terms of Use also cover the pay-per-job commission model, document requirements, and conduct obligations.
             </Text>
           </View>
         )}

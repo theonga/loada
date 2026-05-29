@@ -24,7 +24,7 @@ export default function NameScreen() {
     setLoading(true);
     setError('');
     try {
-      await updateProfile(name.trim());
+      await updateProfile({ name: name.trim() });
       updateName(name.trim());
       // All new users must accept Terms of Use and Privacy Policy before proceeding.
       router.replace('/(auth)/terms');

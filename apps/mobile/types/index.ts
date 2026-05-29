@@ -1,9 +1,10 @@
-import { JobStatus, BidStatus, SubscriptionPlan, SubscriptionStatus } from '@constants/index';
+import { JobStatus, BidStatus } from '@constants/index';
 
 export interface User {
   id: string;
   phone: string;
   name: string;
+  email?: string | null;
   role: 'SHIPPER' | 'DRIVER' | 'BOTH';
   profilePhotoUrl?: string;
   isVerified: boolean;
@@ -21,13 +22,16 @@ export interface DriverProfile {
   id: string;
   userId: string;
   name: string;
+  truckType?: string;
   capacityTonnes: number;
   truckRegistration: string;
   truckMake: string;
   truckModel: string;
   truckYear: number;
   truckPhotoUrl?: string;
+  vehicleSidePhotoUrl?: string;
   licenceUrl?: string;
+  licenceBackUrl?: string;
   licenceExpiry?: string;
   registrationUrl?: string;
   registrationExpiry?: string;
@@ -38,7 +42,6 @@ export interface DriverProfile {
   rating: number;
   reviewCount: number;
   yearsOnPlatform: number;
-  subscriptionStatus: SubscriptionStatus;
 }
 
 export interface Job {
@@ -56,6 +59,8 @@ export interface Job {
   specialRequirements: string[];
   askingPrice: number;
   currency: string;
+  requiredTruckType?: string;
+  paymentMethod?: string;
   status: JobStatus;
   searchRadiusKm: number;
   biddingExpiresAt?: string;
@@ -124,26 +129,19 @@ export interface Rating {
   createdAt: string;
 }
 
-export interface Subscription {
-  id: string;
-  driverId: string;
-  plan: SubscriptionPlan;
-  status: SubscriptionStatus;
-  currentPeriodEnd: string;
-  paynowReference?: string;
-  createdAt: string;
-}
 
 export interface EarningsSummary {
   weekLabel: string;
   totalEarned: number;
+  totalCommissionPaid: number;
+  netEarned: number;
   previousWeekTotal: number;
   jobsCompleted: number;
   totalKm: number;
   averagePerJob: number;
   bestDay: { day: string; amount: number };
-  subscriptionCost: number;
-  days: { day: string; earned: number }[];
+  walletBalance: number;
+  days: { day: string; earned: number; commissionPaid: number }[];
 }
 
 export interface AppNotification {
@@ -180,4 +178,6 @@ export interface CreateJobInput {
   specialRequirements: string[];
   askingPrice: number;
   currency: string;
+  requiredTruckType?: string;
+  paymentMethod?: string;
 }

@@ -8,6 +8,7 @@ import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from
 import { ProgressBar } from '@components/ui/ProgressBar';
 import { Chip } from '@components/ui/Chip';
 import { useDraftJobStore } from '@store/draftJob.store';
+import { PAYMENT_METHOD_LABELS, TRUCK_TYPE_LABELS, type PaymentMethod, type TruckType } from '@constants/index';
 import { useJobStore } from '@store/job.store';
 import { postJob } from '@services';
 
@@ -36,9 +37,11 @@ export default function PostConfirmScreen() {
         destLng: draft.destLng,
         cargoDescription: draft.cargoDescription,
         requiredTonnes: draft.requiredTonnes,
+        requiredTruckType: draft.requiredTruckType,
         specialRequirements: draft.specialRequirements,
         askingPrice: draft.askingPrice,
         currency: draft.currency,
+        paymentMethod: draft.paymentMethod,
       });
       setActiveJob(job);
       reset();
@@ -97,6 +100,13 @@ export default function PostConfirmScreen() {
           </View>
           <View style={styles.divider} />
           <View style={styles.row}>
+            <Text style={styles.rowLabel}>Vehicle type</Text>
+            <Text style={styles.rowValue}>
+              {TRUCK_TYPE_LABELS[(draft.requiredTruckType ?? 'TRUCK') as TruckType] ?? draft.requiredTruckType}
+            </Text>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.row}>
             <Text style={styles.rowLabel}>Tonnage</Text>
             <Chip variant="amber">{draft.requiredTonnes}t</Chip>
           </View>
@@ -113,6 +123,13 @@ export default function PostConfirmScreen() {
               </View>
             </>
           )}
+          <View style={styles.divider} />
+          <View style={styles.row}>
+            <Text style={styles.rowLabel}>Payment to driver</Text>
+            <Text style={styles.rowValue}>
+              {PAYMENT_METHOD_LABELS[(draft.paymentMethod ?? 'CASH') as PaymentMethod] ?? draft.paymentMethod}
+            </Text>
+          </View>
           <View style={styles.divider} />
           <View style={styles.row}>
             <Text style={styles.rowLabel}>Asking price</Text>

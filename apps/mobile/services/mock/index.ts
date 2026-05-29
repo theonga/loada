@@ -1,4 +1,4 @@
-import { BidStatus, JobStatus, SubscriptionPlan, SubscriptionStatus } from '@constants/index';
+import { BidStatus, JobStatus } from '@constants/index';
 import type {
   User,
   Job,
@@ -110,7 +110,6 @@ export async function placeBid(jobId: string, price: number): Promise<Bid> {
       rating: 4.8,
       reviewCount: 142,
       yearsOnPlatform: 2,
-      subscriptionStatus: SubscriptionStatus.ACTIVE,
     },
     offeredPrice: price,
     currency: 'USD',

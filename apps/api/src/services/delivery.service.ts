@@ -6,7 +6,7 @@ import { transitionJobStatus } from "./job.service";
 export async function confirmPickup(
   jobId: string,
   driverId: string,
-  photoUri: string,
+  photoUri?: string,
   discrepancyNote?: string,
 ): Promise<void> {
   const job = await prisma.job.findUnique({
@@ -25,10 +25,16 @@ export async function confirmPickup(
   }
   void discrepancyNote;
 
+  const driverUser = await prisma.driverProfile.findUnique({
+    where: { id: driverId },
+    select: { user: { select: { name: true } } },
+  });
+  const driverName = driverUser?.user?.name ?? "Your driver";
+
   await prisma.delivery.upsert({
     where: { jobId },
-    create: { jobId, pickupConfirmedAt: new Date(), pickupPhotoUrl: photoUri },
-    update: { pickupConfirmedAt: new Date(), pickupPhotoUrl: photoUri },
+    create: { jobId, pickupConfirmedAt: new Date(), pickupPhotoUrl: photoUri ?? null },
+    update: { pickupConfirmedAt: new Date(), ...(photoUri ? { pickupPhotoUrl: photoUri } : {}) },
   });
 
   await transitionJobStatus(jobId, "LOADED");
@@ -36,7 +42,7 @@ export async function confirmPickup(
   await notifyShipper(
     job.shipperId,
     "Cargo Loaded",
-    `Your cargo is loaded. The driver is heading to ${job.destAddress}.`,
+    `${driverName} has loaded your cargo and is heading to ${job.destAddress}.`,
     { jobId },
   );
 }
@@ -83,12 +89,18 @@ export async function confirmDelivery(
     },
   });
 
+  const driverUser = await prisma.driverProfile.findUnique({
+    where: { id: driverId },
+    select: { user: { select: { name: true } } },
+  });
+  const driverName = driverUser?.user?.name ?? "Your driver";
+
   await transitionJobStatus(jobId, "DELIVERED");
 
   await notifyShipper(
     job.shipperId,
     "Delivered",
-    "Your load has been delivered. Download your proof of delivery.",
+    `${driverName} has delivered your load. Download your proof of delivery.`,
     { jobId },
   );
 }

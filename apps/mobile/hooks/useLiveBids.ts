@@ -49,7 +49,6 @@ function parseBid(raw: RawBid): Bid {
       rating: 0,
       reviewCount: 0,
       yearsOnPlatform: 0,
-      subscriptionStatus: 'ACTIVE' as Bid['driver']['subscriptionStatus'],
     },
   };
 }

@@ -10,6 +10,7 @@ import {
   Typography,
 } from "@constants/theme";
 import { getMyDriverProfile } from "@services";
+import { useDriverHeartbeat } from "@hooks/useDriverHeartbeat";
 
 export default function DriverLayout() {
   const insets = useSafeAreaInsets();
@@ -17,6 +18,7 @@ export default function DriverLayout() {
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
   const [vehicleOk, setVehicleOk] = useState(false);
+  useDriverHeartbeat();
 
   useEffect(() => {
     getMyDriverProfile()
@@ -118,7 +120,7 @@ export default function DriverLayout() {
       <Tabs.Screen name="active/in-transit" options={{ href: null }} />
       <Tabs.Screen name="active/complete" options={{ href: null }} />
       <Tabs.Screen name="documents/index" options={{ href: null }} />
-      <Tabs.Screen name="subscription/index" options={{ href: null }} />
+<Tabs.Screen name="wallet/index" options={{ href: null }} />
     </Tabs>
   );
 }

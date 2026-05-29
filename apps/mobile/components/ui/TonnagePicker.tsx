@@ -1,5 +1,5 @@
-import React from 'react';
-import { FlatList, StyleSheet, View } from 'react-native';
+import React, { useRef } from 'react';
+import { ScrollView, View, StyleSheet } from 'react-native';
 import { TONNAGE_TIERS, TONNAGE_LABELS } from '@constants/index';
 import { Spacing } from '@constants/theme';
 import { Pill } from './Pill';
@@ -10,28 +10,39 @@ interface TonnagePickerProps {
 }
 
 export function TonnagePicker({ value, onChange }: TonnagePickerProps) {
+  const scrollRef = useRef<ScrollView>(null);
+  const tiers = TONNAGE_TIERS as unknown as number[];
+
   return (
-    <FlatList
-      data={TONNAGE_TIERS as unknown as number[]}
+    <ScrollView
+      ref={scrollRef}
       horizontal
       showsHorizontalScrollIndicator={false}
-      keyExtractor={(item) => String(item)}
       contentContainerStyle={styles.content}
-      ItemSeparatorComponent={() => <View style={styles.sep} />}
-      renderItem={({ item }) => (
-        <Pill active={value === item} onPress={() => onChange(item)}>
-          {TONNAGE_LABELS[item]}
-        </Pill>
-      )}
-    />
+    >
+      {tiers.map((item, idx) => (
+        <View
+          key={String(item)}
+          style={idx > 0 ? styles.gap : undefined}
+          onLayout={(e) => {
+            if (item === value && e.nativeEvent.layout.x > 0) {
+              scrollRef.current?.scrollTo({
+                x: Math.max(0, e.nativeEvent.layout.x - Spacing.screenH),
+                animated: false,
+              });
+            }
+          }}
+        >
+          <Pill active={value === item} onPress={() => onChange(item)}>
+            {TONNAGE_LABELS[item]}
+          </Pill>
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  content: {
-    paddingHorizontal: Spacing.screenH,
-  },
-  sep: {
-    width: Spacing.gapSm,
-  },
+  content: {},
+  gap: { marginLeft: Spacing.gapSm },
 });

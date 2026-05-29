@@ -11,7 +11,7 @@ const SUPPORT_EMAIL = 'help@loada.app';
 
 const FAQ = [
   { q: 'How does bidding work?', a: 'Post your load, set an asking price. Drivers within 25km will see it and can bid. You accept the best bid.' },
-  { q: 'How is the subscription charged?', a: 'Drivers pay a flat weekly or monthly fee via EcoCash or OneMoney. No commission per job.' },
+  { q: 'How does Loada charge drivers?', a: 'Loada takes a small % commission from each completed job — no monthly fees. Top up your wallet with as little as $10 to start bidding.' },
   { q: 'What if my driver doesn\'t arrive?', a: 'Contact your driver via in-app chat first. If unresolved, use the "Report issue" button on your active job.' },
   { q: 'How do I get my documents verified?', a: 'Upload clear photos of your documents in the Documents section. Verification takes 1–2 business days.' },
   { q: 'Can I cancel a job after matching?', a: 'You can cancel before the driver arrives at pickup. Cancellations after pickup may affect your rating.' },

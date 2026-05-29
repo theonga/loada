@@ -34,7 +34,7 @@ export async function updateDriverLocation(
   const activeJob = await prisma.job.findFirst({
     where: {
       matchedDriverId: driverId,
-      status: { in: ["PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"] },
+      status: { in: ["MATCHED", "PICKUP_EN_ROUTE", "PICKUP_ARRIVED", "LOADED", "IN_TRANSIT"] },
     },
   });
 
@@ -66,6 +66,7 @@ export async function getNearbyDrivers(
   lng: number,
   radiusKm: number,
   requiredTonnes: number,
+  requiredTruckType?: string,
 ): Promise<DriverProfile[]> {
   const driverIds = await redis.georadius(
     "loada:drivers:online",
@@ -82,6 +83,7 @@ export async function getNearbyDrivers(
     where: {
       id: { in: driverIds },
       capacityTonnes: { gte: requiredTonnes },
+      ...(requiredTruckType ? { truckType: requiredTruckType as import("@prisma/client").TruckType } : {}),
       documentStatus: "APPROVED",
       subscription: { status: { in: ["ACTIVE", "TRIAL"] } },
     },

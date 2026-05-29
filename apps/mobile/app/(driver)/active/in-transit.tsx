@@ -9,6 +9,7 @@ import { MapBg } from '@components/ui/MapBg';
 import { MapPin } from '@components/ui/MapPin';
 import { useJobStore } from '@store/job.store';
 import { useLocationStore } from '@store/location.store';
+import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
 
 function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
   const R = 6371;
@@ -20,7 +21,7 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
 
 export default function InTransitScreen() {
   const router = useRouter();
-  const job = useJobStore((s) => s.activeJob);
+  const job = useEnsureActiveJob();
   const driverLoc = useLocationStore((s) => s.driverLocation);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);

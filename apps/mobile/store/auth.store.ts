@@ -18,6 +18,7 @@ interface AuthStore {
   isAuthenticated: boolean;
   setUser: (user: User) => void;
   updateName: (name: string) => void;
+  updateEmail: (email: string | null | undefined) => void;
   setRole: (role: 'shipper' | 'driver') => void;
   setToken: (token: string) => void;
   setRefreshToken: (token: string) => void;
@@ -43,6 +44,15 @@ export const useAuthStore = create<AuthStore>((set) => ({
     set((s) => {
       if (!s.user) return {};
       const updated = { ...s.user, name };
+      AsyncStorage.setItem(KEYS.user, JSON.stringify(updated));
+      return { user: updated };
+    });
+  },
+
+  updateEmail: (email: string | null | undefined) => {
+    set((s) => {
+      if (!s.user) return {};
+      const updated = { ...s.user, email: email ?? null };
       AsyncStorage.setItem(KEYS.user, JSON.stringify(updated));
       return { user: updated };
     });

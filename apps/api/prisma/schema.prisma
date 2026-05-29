@@ -13,6 +13,7 @@ model User {
   id                String          @id @default(uuid())
   phone             String          @unique
   name              String
+  email             String?
   role              UserRole
   profilePhotoUrl   String?
   fcmToken          String?
@@ -26,6 +27,7 @@ model User {
   sentMessages      Message[]       @relation("SentMessages")
   ratingsGiven      Rating[]        @relation("RatingsGiven")
   ratingsReceived   Rating[]        @relation("RatingsReceived")
+  notifications     Notification[]
 }
 
 model ShipperProfile {
@@ -39,13 +41,16 @@ model ShipperProfile {
 model DriverProfile {
   id                   String             @id @default(uuid())
   userId               String             @unique
-  capacityTonnes       Int
+  truckType            TruckType          @default(TRUCK)
+  capacityTonnes       Float
   truckRegistration    String
   truckMake            String
   truckModel           String
   truckYear            Int
   truckPhotoUrl        String?
+  vehicleSidePhotoUrl  String?
   licenceUrl           String?
+  licenceBackUrl       String?
   licenceExpiry        DateTime?
   registrationUrl      String?
   registrationExpiry   DateTime?
@@ -56,7 +61,33 @@ model DriverProfile {
   lastLocationAt       DateTime?
   user                 User               @relation(fields: [userId], references: [id])
   subscription         Subscription?
+  wallet               DriverWallet?
   bids                 Bid[]
+}
+
+model DriverWallet {
+  id              String             @id @default(uuid())
+  driverId        String             @unique
+  driver          DriverProfile      @relation(fields: [driverId], references: [id])
+  balance         Decimal            @default(0) @db.Decimal(10, 2)
+  reservedBalance Decimal            @default(0) @db.Decimal(10, 2)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  transactions    WalletTransaction[]
+}
+
+model WalletTransaction {
+  id         String         @id @default(uuid())
+  walletId   String
+  wallet     DriverWallet   @relation(fields: [walletId], references: [id])
+  type       WalletTxType
+  amount     Decimal        @db.Decimal(10, 2)
+  bidId      String?
+  jobId      String?
+  paynowRef  String?
+  note       String?
+  status     PaymentStatus  @default(PENDING)
+  createdAt  DateTime       @default(now())
 }
 
 model Job {
@@ -70,10 +101,12 @@ model Job {
   destLat             Float
   destLng             Float
   cargoDescription    String
-  requiredTonnes      Int
+  requiredTonnes      Float
   specialRequirements String[]
   askingPrice         Decimal         @db.Decimal(10, 2)
   currency            String          @default("USD")
+  requiredTruckType   TruckType       @default(TRUCK)
+  paymentMethod       ShipperPaymentMethod @default(CASH)
   status              JobStatus       @default(POSTED)
   searchRadiusKm      Int             @default(25)
   biddingExpiresAt    DateTime?
@@ -88,17 +121,18 @@ model Job {
 }
 
 model Bid {
-  id            String        @id @default(uuid())
-  jobId         String
-  driverId      String
-  offeredPrice  Decimal       @db.Decimal(10, 2)
-  currency      String        @default("USD")
-  status        BidStatus     @default(PENDING)
-  note          String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  job           Job           @relation(fields: [jobId], references: [id])
-  driver        DriverProfile @relation(fields: [driverId], references: [id])
+  id               String        @id @default(uuid())
+  jobId            String
+  driverId         String
+  offeredPrice     Decimal       @db.Decimal(10, 2)
+  currency         String        @default("USD")
+  status           BidStatus     @default(PENDING)
+  note             String?
+  commissionAmount Decimal?      @db.Decimal(10, 2)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  job              Job           @relation(fields: [jobId], references: [id])
+  driver           DriverProfile @relation(fields: [driverId], references: [id])
 }
 
 model Delivery {
@@ -230,6 +264,28 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum WalletTxType {
+  DEPOSIT
+  COMMISSION_RESERVE
+  COMMISSION_RELEASE
+  COMMISSION_DEDUCT
+  REFUND
+}
+
+enum TruckType {
+  PICKUP
+  TRUCK
+  BOX_TRUCK
+  TOW_TRUCK
+}
+
+enum ShipperPaymentMethod {
+  CASH
+  ECOCASH
+  INNBUCKS
+  BANK_TRANSFER
+}
+
 model AppConfig {
   key       String   @id
   value     String
@@ -245,4 +301,19 @@ model Admin {
   passwordHash String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String
+  title     String
+  body      String
+  jobId     String?
+  data      Json?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
 }

@@ -25,7 +25,10 @@ export type ConfigKey =
   | "per_km_rate_5t"
   | "per_km_rate_10t"
   | "per_km_rate_20t"
-  | "per_km_rate_30t";
+  | "per_km_rate_30t"
+  | "loada_commission_pct"
+  | "min_deposit_usd"
+  | "max_bid_cancel_per_week";
 
 export const CONFIG_DEFAULTS: Record<ConfigKey, string> = {
   subscription_price_weekly: "8",
@@ -49,6 +52,9 @@ export const CONFIG_DEFAULTS: Record<ConfigKey, string> = {
   per_km_rate_10t: "0.60",
   per_km_rate_20t: "0.70",
   per_km_rate_30t: "0.80",
+  loada_commission_pct: "15",
+  min_deposit_usd: "10",
+  max_bid_cancel_per_week: "5",
 };
 
 export const CONFIG_META: Record<ConfigKey, { label: string; group: string }> = {
@@ -73,6 +79,9 @@ export const CONFIG_META: Record<ConfigKey, { label: string; group: string }> = 
   per_km_rate_10t:                     { label: "Per-km rate — 10 tonnes (USD)", group: "market" },
   per_km_rate_20t:                     { label: "Per-km rate — 20 tonnes (USD)", group: "market" },
   per_km_rate_30t:                     { label: "Per-km rate — 30 tonnes (USD)", group: "market" },
+  loada_commission_pct:                { label: "Loada commission percentage (%)", group: "pricing" },
+  min_deposit_usd:                     { label: "Minimum wallet deposit (USD)", group: "pricing" },
+  max_bid_cancel_per_week:             { label: "Max bid cancellations per driver per week (abuse limit)", group: "bidding" },
 };
 
 export async function getConfig(key: ConfigKey): Promise<string> {

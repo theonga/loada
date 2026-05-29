@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { ZodError } from "zod";
-import { requireDriver, requireActiveSubscription } from "@/middleware/auth";
+import { requireAuth, requireDriver, requireActiveSubscription } from "@/middleware/auth";
 import { updateDriverSchema, driverOnlineSchema, earningsQuerySchema } from "@/schemas/driver.schema";
 import { setDriverOnline, setDriverOffline } from "@/services/location.service";
 import { getEarningsSummary } from "@/services/earnings.service";
@@ -21,7 +21,7 @@ export async function driverRoutes(app: FastifyInstance) {
     }
     const driver = await prisma.driverProfile.findUnique({
       where: { id: user.driverProfile.id },
-      include: { subscription: { include: { payments: true } }, user: { select: { id: true, name: true, phone: true, profilePhotoUrl: true } } },
+      include: { subscription: { include: { payments: true } }, user: { select: { id: true, name: true, phone: true, email: true, profilePhotoUrl: true } } },
     });
     return reply.send({ success: true, data: { driver, subscription: driver?.subscription, documents: { licenceUrl: driver?.licenceUrl, registrationUrl: driver?.registrationUrl, status: driver?.documentStatus } } });
   });
@@ -89,5 +89,33 @@ export async function driverRoutes(app: FastifyInstance) {
       const e = err as { statusCode?: number; code?: string; message: string };
       return reply.status(e.statusCode ?? 500).send({ success: false, error: { code: e.code ?? "ERROR", message: e.message } });
     }
+  });
+
+  app.get("/:profileId", { preHandler: [requireAuth] }, async (req, reply) => {
+    const { profileId } = req.params as { profileId: string };
+    const driver = await prisma.driverProfile.findUnique({
+      where: { id: profileId },
+      select: {
+        id: true,
+        userId: true,
+        truckType: true,
+        capacityTonnes: true,
+        truckRegistration: true,
+        truckMake: true,
+        truckModel: true,
+        truckYear: true,
+        truckPhotoUrl: true,
+        vehicleSidePhotoUrl: true,
+        documentStatus: true,
+        isOnline: true,
+        lastLocationLat: true,
+        lastLocationLng: true,
+        user: { select: { id: true, name: true, profilePhotoUrl: true } },
+      },
+    });
+    if (!driver) {
+      return reply.status(404).send({ success: false, error: { code: "DRIVER_NOT_FOUND", message: "Driver not found" } });
+    }
+    return reply.send({ success: true, data: { driver } });
   });
 }

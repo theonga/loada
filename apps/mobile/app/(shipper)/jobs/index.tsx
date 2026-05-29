@@ -9,6 +9,7 @@ import { LoadCard } from '@components/ui/LoadCard';
 import { Skeleton } from '@components/ui/Skeleton';
 import { getShipperJobs } from '@services';
 import { useAuthStore } from '@store/auth.store';
+import { useDraftJobStore } from '@store/draftJob.store';
 import { JobStatus } from '@constants/index';
 import type { Job } from '@/types';
 
@@ -51,6 +52,7 @@ function isExpired(job: Job): boolean {
 export default function ShipperJobsScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
+  const prefill = useDraftJobStore((s) => s.prefill);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('ALL');
@@ -80,6 +82,18 @@ export default function ShipperJobsScreen() {
     if (activeTab === 'CANCELLED') return jobs.filter((j) => j.status === JobStatus.CANCELLED);
     return jobs;
   }, [jobs, activeTab]);
+
+  function handleRepost(job: Job) {
+    prefill({
+      origin: { address: job.originAddress, lat: job.originLat, lng: job.originLng },
+      dest: { address: job.destAddress, lat: job.destLat, lng: job.destLng },
+      cargoDescription: job.cargoDescription,
+      requiredTruckType: job.requiredTruckType,
+      requiredTonnes: job.requiredTonnes,
+      specialRequirements: job.specialRequirements,
+    });
+    router.push('/(shipper)/post/pricing');
+  }
 
   const countFor = (tab: TabKey) => {
     if (tab === 'ALL') return jobs.length;
@@ -139,21 +153,33 @@ export default function ShipperJobsScreen() {
           data={filtered}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => (
-            <LoadCard
-              job={item}
-              onPress={() => {
-                if (BIDDING_STATUSES.includes(item.status) && !isExpired(item)) {
-                  router.push(`/(shipper)/bids/${item.id}`);
-                } else if (item.status === JobStatus.DELIVERED || item.status === JobStatus.COMPLETED) {
-                  router.push(`/(shipper)/delivery/${item.id}`);
-                } else if (ACTIVE_STATUSES.includes(item.status)) {
-                  router.push(`/(shipper)/tracking/${item.id}`);
-                }
-                // expired jobs are tappable but no destination yet
-              }}
-            />
-          )}
+          renderItem={({ item }) => {
+            const canRepost = isExpired(item) || item.status === JobStatus.COMPLETED || item.status === JobStatus.CANCELLED;
+            return (
+              <View style={styles.cardWrap}>
+                <LoadCard
+                  job={item}
+                  onPress={() => {
+                    if (BIDDING_STATUSES.includes(item.status) && !isExpired(item)) {
+                      router.push(`/(shipper)/bids/${item.id}`);
+                    } else if (item.status === JobStatus.DELIVERED || item.status === JobStatus.COMPLETED) {
+                      router.push(`/(shipper)/delivery/${item.id}`);
+                    } else if (ACTIVE_STATUSES.includes(item.status)) {
+                      router.push(`/(shipper)/tracking/${item.id}`);
+                    }
+                  }}
+                />
+                {canRepost && (
+                  <Pressable
+                    style={({ pressed }) => [styles.repostBtn, pressed && { opacity: 0.7 }]}
+                    onPress={() => handleRepost(item)}
+                  >
+                    <Text style={styles.repostBtnText}>Re-post this load</Text>
+                  </Pressable>
+                )}
+              </View>
+            );
+          }}
           ItemSeparatorComponent={() => <View style={styles.sep} />}
           ListEmptyComponent={
             <View style={styles.empty}>
@@ -228,5 +254,20 @@ function getStyles(C: ColorPalette) {
     sep: { height: Spacing.gap },
     empty: { flex: 1, paddingTop: 64, alignItems: 'center' },
     emptyText: { textAlign: 'center', color: C.text.tertiary, fontSize: Typography.sizes.body },
+    cardWrap: { gap: Spacing.gapSm },
+    repostBtn: {
+      height: 36,
+      borderRadius: Radius.button,
+      borderWidth: 1,
+      borderColor: 'rgba(245,166,35,0.35)',
+      backgroundColor: 'rgba(245,166,35,0.08)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    repostBtnText: {
+      fontSize: Typography.sizes.chip,
+      fontWeight: Typography.weights.semibold,
+      color: C.accent,
+    },
   });
 }

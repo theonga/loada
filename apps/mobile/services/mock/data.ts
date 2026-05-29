@@ -1,4 +1,4 @@
-import { JobStatus, BidStatus, SubscriptionPlan, SubscriptionStatus } from '@constants/index';
+import { JobStatus, BidStatus } from '@constants/index';
 import type {
   User,
   DriverProfile,
@@ -6,7 +6,6 @@ import type {
   Bid,
   Message,
   Rating,
-  Subscription,
   EarningsSummary,
   AppNotification,
   MarketReference,
@@ -53,7 +52,6 @@ export const MOCK_DRIVERS: DriverProfile[] = [
     rating: 4.8,
     reviewCount: 142,
     yearsOnPlatform: 2,
-    subscriptionStatus: SubscriptionStatus.ACTIVE,
   },
   {
     id: 'dp-002',
@@ -71,7 +69,6 @@ export const MOCK_DRIVERS: DriverProfile[] = [
     rating: 4.9,
     reviewCount: 208,
     yearsOnPlatform: 3,
-    subscriptionStatus: SubscriptionStatus.ACTIVE,
   },
   {
     id: 'dp-003',
@@ -89,7 +86,6 @@ export const MOCK_DRIVERS: DriverProfile[] = [
     rating: 4.6,
     reviewCount: 89,
     yearsOnPlatform: 2,
-    subscriptionStatus: SubscriptionStatus.ACTIVE,
   },
   {
     id: 'dp-004',
@@ -107,7 +103,6 @@ export const MOCK_DRIVERS: DriverProfile[] = [
     rating: 4.7,
     reviewCount: 174,
     yearsOnPlatform: 3,
-    subscriptionStatus: SubscriptionStatus.ACTIVE,
   },
   {
     id: 'dp-005',
@@ -125,7 +120,6 @@ export const MOCK_DRIVERS: DriverProfile[] = [
     rating: 4.5,
     reviewCount: 61,
     yearsOnPlatform: 1,
-    subscriptionStatus: SubscriptionStatus.ACTIVE,
   },
   {
     id: 'dp-006',
@@ -143,7 +137,6 @@ export const MOCK_DRIVERS: DriverProfile[] = [
     rating: 4.9,
     reviewCount: 312,
     yearsOnPlatform: 4,
-    subscriptionStatus: SubscriptionStatus.ACTIVE,
   },
   {
     id: 'dp-007',
@@ -161,7 +154,6 @@ export const MOCK_DRIVERS: DriverProfile[] = [
     rating: 4.7,
     reviewCount: 127,
     yearsOnPlatform: 2,
-    subscriptionStatus: SubscriptionStatus.ACTIVE,
   },
   {
     id: 'dp-008',
@@ -179,7 +171,6 @@ export const MOCK_DRIVERS: DriverProfile[] = [
     rating: 4.6,
     reviewCount: 98,
     yearsOnPlatform: 2,
-    subscriptionStatus: SubscriptionStatus.ACTIVE,
   },
 ];
 
@@ -203,6 +194,8 @@ export const MOCK_JOBS: Job[] = [
     destLng: 30.0025,
     cargoDescription: 'Industrial machinery & equipment',
     requiredTonnes: 10,
+    requiredTruckType: 'TRUCK',
+    paymentMethod: 'CASH',
     specialRequirements: ['OVERSIZED'],
     askingPrice: 480,
     currency: 'USD',
@@ -227,6 +220,8 @@ export const MOCK_JOBS: Job[] = [
     destLng: 28.5833,
     cargoDescription: 'Bagged cement — 50kg bags',
     requiredTonnes: 20,
+    requiredTruckType: 'TRUCK',
+    paymentMethod: 'CASH',
     specialRequirements: [],
     askingPrice: 320,
     currency: 'USD',
@@ -251,6 +246,8 @@ export const MOCK_JOBS: Job[] = [
     destLng: 32.6709,
     cargoDescription: 'Fresh produce — tomatoes & onions',
     requiredTonnes: 5,
+    requiredTruckType: 'TRUCK',
+    paymentMethod: 'ECOCASH',
     specialRequirements: ['REFRIGERATED'],
     askingPrice: 180,
     currency: 'USD',
@@ -275,6 +272,8 @@ export const MOCK_JOBS: Job[] = [
     destLng: 30.2,
     cargoDescription: 'Hardware & building materials',
     requiredTonnes: 10,
+    requiredTruckType: 'BOX_TRUCK',
+    paymentMethod: 'CASH',
     specialRequirements: [],
     askingPrice: 220,
     currency: 'USD',
@@ -299,6 +298,8 @@ export const MOCK_JOBS: Job[] = [
     destLng: 31.5517,
     cargoDescription: 'Household furniture & appliances',
     requiredTonnes: 2,
+    requiredTruckType: 'TRUCK',
+    paymentMethod: 'INNBUCKS',
     specialRequirements: ['FRAGILE'],
     askingPrice: 95,
     currency: 'USD',
@@ -323,6 +324,8 @@ export const MOCK_JOBS: Job[] = [
     destLng: 28.5833,
     cargoDescription: 'Steel pipes & construction steel',
     requiredTonnes: 20,
+    requiredTruckType: 'TOW_TRUCK',
+    paymentMethod: 'BANK_TRANSFER',
     specialRequirements: ['OVERSIZED'],
     askingPrice: 380,
     currency: 'USD',
@@ -469,37 +472,27 @@ export const MOCK_RATINGS: Rating[] = [
   },
 ];
 
-// ─── SUBSCRIPTION ────────────────────────────────────────────────────────────
-
-export const MOCK_SUBSCRIPTION: Subscription = {
-  id: 'sub-001',
-  driverId: 'dp-001',
-  plan: SubscriptionPlan.WEEKLY,
-  status: SubscriptionStatus.ACTIVE,
-  currentPeriodEnd: new Date(now.getTime() + 5 * 86400000).toISOString(),
-  paynowReference: 'PNW-2026-05-0042',
-  createdAt: '2026-05-14T06:00:00Z',
-};
-
 // ─── EARNINGS ────────────────────────────────────────────────────────────────
 
 export const MOCK_EARNINGS: EarningsSummary = {
   weekLabel: 'Mon 13 May – Sun 19 May',
   totalEarned: 1840,
+  totalCommissionPaid: 276,
+  netEarned: 1564,
   previousWeekTotal: 1560,
   jobsCompleted: 7,
   totalKm: 2415,
   averagePerJob: 262,
   bestDay: { day: 'Sat', amount: 440 },
-  subscriptionCost: 7,
+  walletBalance: 45,
   days: [
-    { day: 'Mon', earned: 280 },
-    { day: 'Tue', earned: 380 },
-    { day: 'Wed', earned: 120 },
-    { day: 'Thu', earned: 320 },
-    { day: 'Fri', earned: 300 },
-    { day: 'Sat', earned: 440 },
-    { day: 'Sun', earned: 0 },
+    { day: 'Mon', earned: 280, commissionPaid: 42 },
+    { day: 'Tue', earned: 380, commissionPaid: 57 },
+    { day: 'Wed', earned: 120, commissionPaid: 18 },
+    { day: 'Thu', earned: 320, commissionPaid: 48 },
+    { day: 'Fri', earned: 300, commissionPaid: 45 },
+    { day: 'Sat', earned: 440, commissionPaid: 66 },
+    { day: 'Sun', earned: 0, commissionPaid: 0 },
   ],
 };
 

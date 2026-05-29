@@ -34,7 +34,8 @@ function RootLayoutNav() {
   const [hydrated, setHydrated] = useState(false);
 
   usePushToken((type, jobId) => {
-    if (type === 'bid_received') router.push(`/(shipper)/bids/${jobId}`);
+    if (type === 'new_load') router.push(`/(driver)/loads/${jobId}`);
+    else if (type === 'bid_received') router.push(`/(shipper)/bids/${jobId}`);
     else if (type === 'matched') router.push(role === 'driver' ? `/(driver)/match/${jobId}` : `/(shipper)/match/${jobId}`);
     else if (type === 'chat_message') router.push(`/(shared)/chat/${jobId}`);
   });

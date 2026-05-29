@@ -71,4 +71,25 @@ export async function shipperRoutes(app: FastifyInstance) {
 
     return reply.send({ success: true, data: { pickups, dropoffs } });
   });
+
+  // PATCH /shippers/me — update shipper profile (company name is optional)
+  app.patch<{ Body: { companyName?: string | null } }>(
+    "/me",
+    { preHandler: [requireShipper] },
+    async (req, reply) => {
+      const user = getUser(req);
+      if (!user.shipperProfile) {
+        return reply.status(400).send({
+          success: false,
+          error: { code: "NO_SHIPPER_PROFILE", message: "No shipper profile" },
+        });
+      }
+      const { companyName } = req.body;
+      const updated = await prisma.shipperProfile.update({
+        where: { id: user.shipperProfile.id },
+        data: { companyName: companyName ?? null },
+      });
+      return reply.send({ success: true, data: { profile: updated } });
+    },
+  );
 }
