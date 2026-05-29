@@ -1,11 +1,32 @@
 import type { FastifyInstance } from "fastify";
 import { ZodError } from "zod";
-import { requireAuth, requireDriver, requireActiveSubscription } from "@/middleware/auth";
+import { requireAuth, requireDriver } from "@/middleware/auth";
 import { updateDriverSchema, driverOnlineSchema, earningsQuerySchema } from "@/schemas/driver.schema";
 import { setDriverOnline, setDriverOffline } from "@/services/location.service";
 import { getEarningsSummary } from "@/services/earnings.service";
 import { prisma } from "@/lib/prisma";
+import { resolveStoredFiles } from "@/lib/s3";
 import dayjs from "dayjs";
+
+// Resolve all of a driver's S3-backed file references to fresh presigned URLs
+// in one batch. Mutates a copy of the driver object so the caller can pass it
+// straight through to the response.
+async function attachFreshFileUrls<T extends {
+  licenceUrl?: string | null;
+  licenceBackUrl?: string | null;
+  registrationUrl?: string | null;
+  truckPhotoUrl?: string | null;
+  vehicleSidePhotoUrl?: string | null;
+}>(driver: T): Promise<T> {
+  const resolved = await resolveStoredFiles({
+    licenceUrl: driver.licenceUrl ?? null,
+    licenceBackUrl: driver.licenceBackUrl ?? null,
+    registrationUrl: driver.registrationUrl ?? null,
+    truckPhotoUrl: driver.truckPhotoUrl ?? null,
+    vehicleSidePhotoUrl: driver.vehicleSidePhotoUrl ?? null,
+  });
+  return { ...driver, ...resolved };
+}
 
 type AuthUser = { id: string; driverProfile?: { id: string } | null };
 
@@ -23,7 +44,22 @@ export async function driverRoutes(app: FastifyInstance) {
       where: { id: user.driverProfile.id },
       include: { subscription: { include: { payments: true } }, user: { select: { id: true, name: true, phone: true, email: true, profilePhotoUrl: true } } },
     });
-    return reply.send({ success: true, data: { driver, subscription: driver?.subscription, documents: { licenceUrl: driver?.licenceUrl, registrationUrl: driver?.registrationUrl, status: driver?.documentStatus } } });
+    if (!driver) {
+      return reply.status(404).send({ success: false, error: { code: "DRIVER_NOT_FOUND", message: "Driver not found" } });
+    }
+    const withUrls = await attachFreshFileUrls(driver);
+    return reply.send({
+      success: true,
+      data: {
+        driver: withUrls,
+        subscription: driver.subscription,
+        documents: {
+          licenceUrl: withUrls.licenceUrl,
+          registrationUrl: withUrls.registrationUrl,
+          status: driver.documentStatus,
+        },
+      },
+    });
   });
 
   app.patch("/me", { preHandler: [requireDriver] }, async (req, reply) => {
@@ -44,7 +80,9 @@ export async function driverRoutes(app: FastifyInstance) {
     }
   });
 
-  app.patch("/me/online", { preHandler: [requireDriver, requireActiveSubscription] }, async (req, reply) => {
+  // Going online requires approved documents (enforced at matching time via getNearbyDrivers);
+  // no subscription gate — Loada uses per-job commission.
+  app.patch("/me/online", { preHandler: [requireDriver] }, async (req, reply) => {
     try {
       const body = driverOnlineSchema.parse(req.body);
       const user = getUser(req);
@@ -116,6 +154,7 @@ export async function driverRoutes(app: FastifyInstance) {
     if (!driver) {
       return reply.status(404).send({ success: false, error: { code: "DRIVER_NOT_FOUND", message: "Driver not found" } });
     }
-    return reply.send({ success: true, data: { driver } });
+    const withUrls = await attachFreshFileUrls(driver);
+    return reply.send({ success: true, data: { driver: withUrls } });
   });
 }

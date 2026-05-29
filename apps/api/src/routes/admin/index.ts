@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin, getAdmin } from "@/middleware/admin-auth";
 import { getAllConfig, setConfig } from "@/lib/app-config";
 import type { ConfigKey } from "@/lib/app-config";
+import { resolveStoredFiles } from "@/lib/s3";
 
 export async function adminRoutes(app: FastifyInstance) {
   // ── Auth ─────────────────────────────────────────────────────────────────────
@@ -197,7 +198,22 @@ export async function adminRoutes(app: FastifyInstance) {
       prisma.driverProfile.count({ where }),
     ]);
 
-    return reply.send({ success: true, data: { drivers, total, page: query.page, limit: query.limit } });
+    // Refresh every document/photo URL so admin sees working links even for
+    // drivers who uploaded weeks ago. The stored value is the S3 key.
+    const driversWithUrls = await Promise.all(
+      drivers.map(async (d) => {
+        const fresh = await resolveStoredFiles({
+          licenceUrl: d.licenceUrl,
+          licenceBackUrl: d.licenceBackUrl,
+          registrationUrl: d.registrationUrl,
+          truckPhotoUrl: d.truckPhotoUrl,
+          vehicleSidePhotoUrl: d.vehicleSidePhotoUrl,
+        });
+        return { ...d, ...fresh };
+      }),
+    );
+
+    return reply.send({ success: true, data: { drivers: driversWithUrls, total, page: query.page, limit: query.limit } });
   });
 
   app.patch("/drivers/:driverId/approve-docs", { preHandler: [requireAdmin] }, async (req, reply) => {

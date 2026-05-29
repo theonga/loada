@@ -73,7 +73,12 @@ export function useLiveBids(
     socket.connect();
     socket.emit('job:subscribe', { jobId });
 
-    const handleBid = (raw: RawBid) => {
+    // Server emits { bid, driver } — driver may already be embedded on bid
+    const handleBid = (payload: { bid: RawBid; driver?: RawBid['driver'] } | RawBid) => {
+      const raw: RawBid = 'bid' in payload
+        ? { ...payload.bid, driver: payload.bid.driver ?? payload.driver ?? null }
+        : payload;
+      if (!raw?.id) return;
       stableOnBid(parseBid(raw));
     };
 

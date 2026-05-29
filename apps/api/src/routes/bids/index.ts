@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { ZodError } from "zod";
-import { requireAuth, requireDriver, requireShipper, requireActiveSubscription } from "@/middleware/auth";
+import { requireAuth, requireDriver, requireShipper } from "@/middleware/auth";
 import { placeBidSchema, counterBidSchema, bidsQuerySchema } from "@/schemas/bid.schema";
 import { placeBid, acceptBid, rejectBid, counterBid, getJobBids, getMyBids } from "@/services/bid.service";
 
@@ -11,7 +11,9 @@ function getUser(req: object): AuthUser {
 }
 
 export async function bidRoutes(app: FastifyInstance) {
-  app.post("/", { preHandler: [requireDriver, requireActiveSubscription] }, async (req, reply) => {
+  // Bidding is gated by wallet balance (reserveCommission) and document approval
+  // (checked inside placeBid). No subscription required — Loada uses per-job commission.
+  app.post("/", { preHandler: [requireDriver] }, async (req, reply) => {
     try {
       const body = placeBidSchema.parse(req.body);
       const user = getUser(req);

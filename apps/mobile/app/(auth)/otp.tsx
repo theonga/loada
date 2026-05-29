@@ -6,9 +6,10 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { useAuthStore } from '@store/auth.store';
-import { verifyOTP } from '@services';
+import { verifyOTP, sendOTP } from '@services';
 
 const CODE_LENGTH = 6;
+const RESEND_COOLDOWN_SECONDS = 30;
 
 export default function OTPScreen() {
   const router = useRouter();
@@ -16,12 +17,38 @@ export default function OTPScreen() {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(RESEND_COOLDOWN_SECONDS);
+  const [resending, setResending] = useState(false);
   const inputRef = useRef<TextInput>(null);
   const { setUser, setToken, role, pendingPhone } = useAuthStore();
 
   useEffect(() => {
     if (devCode) setCode(devCode);
   }, [devCode]);
+
+  // Cooldown tick — disables resend for the first 30s so users wait for the
+  // SMS to arrive instead of spamming sends and consuming BulkIT quota.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const t = setInterval(() => setResendCooldown((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [resendCooldown]);
+
+  async function handleResend() {
+    if (resendCooldown > 0 || resending || !pendingPhone) return;
+    setResending(true);
+    setError('');
+    try {
+      await sendOTP(pendingPhone);
+      setCode('');
+      setResendCooldown(RESEND_COOLDOWN_SECONDS);
+    } catch (err) {
+      const msg = (err as { message?: string }).message;
+      setError(msg ?? 'Could not resend code. Please try again.');
+    } finally {
+      setResending(false);
+    }
+  }
 
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
@@ -148,6 +175,21 @@ export default function OTPScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
+        <Pressable
+          onPress={handleResend}
+          disabled={resendCooldown > 0 || resending}
+          hitSlop={8}
+          style={styles.resendRow}
+        >
+          <Text style={[styles.resendText, (resendCooldown > 0 || resending) && { color: C.text.tertiary }]}>
+            {resending
+              ? 'Sending new code…'
+              : resendCooldown > 0
+                ? `Resend code in ${resendCooldown}s`
+                : "Didn't get it? Resend code"}
+          </Text>
+        </Pressable>
+
         <View style={styles.spacer} />
 
         <Pressable
@@ -220,6 +262,8 @@ function getStyles(C: ColorPalette) {
     },
 
     error: { color: C.status.red, fontSize: Typography.sizes.label, textAlign: 'center' },
+    resendRow: { paddingVertical: 8, minHeight: Components.touchMin, justifyContent: 'center' },
+    resendText: { fontSize: Typography.sizes.label, color: C.accent, fontWeight: Typography.weights.medium, textAlign: 'center', fontVariant: ['tabular-nums'] },
     devBanner: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(245,166,35,0.10)', borderWidth: 1, borderColor: 'rgba(245,166,35,0.25)', borderRadius: Radius.button, paddingHorizontal: 12, paddingVertical: 8 },
     devText: { fontSize: Typography.sizes.label, color: '#F5A623', flex: 1 },
     spacer: { flex: 1 },

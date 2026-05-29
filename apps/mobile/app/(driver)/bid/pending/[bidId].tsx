@@ -6,6 +6,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { getJobBids, getJobById } from '@services';
+import { getSocket } from '@services/socket';
 import { BidStatus } from '@constants/index';
 import type { Job } from '@/types';
 
@@ -52,8 +53,39 @@ export default function BidPendingScreen() {
 
   useEffect(() => {
     poll();
-    intervalRef.current = setInterval(poll, 5000);
+    // Polling stays as a safety net (push could be missed in background, etc.)
+    // but with the socket subscription below, the typical case is instant.
+    intervalRef.current = setInterval(poll, 15000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [bidId, jobId]);
+
+  // Socket: server emits to driver:${driverProfileId} on accept / reject / counter.
+  // We don't need the driver profile id here — the socket auto-joins it on connect.
+  useEffect(() => {
+    if (!bidId || !jobId) return;
+    const socket = getSocket('/jobs');
+    if (!socket.connected) socket.connect();
+
+    const handleMatched = (data: { bid?: { id: string; jobId: string } }) => {
+      if (data?.bid?.jobId !== jobId) return;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      setStatus('accepted');
+      router.replace(`/(driver)/match/${jobId}`);
+    };
+
+    const handleBidUpdate = (data: { bid?: { id: string; status: string } }) => {
+      if (!data?.bid || data.bid.id !== bidId) return;
+      // Re-poll to get authoritative state (counter price, etc.)
+      poll();
+    };
+
+    socket.on('job:matched', handleMatched);
+    socket.on('job:bid_status_updated', handleBidUpdate);
+
+    return () => {
+      socket.off('job:matched', handleMatched);
+      socket.off('job:bid_status_updated', handleBidUpdate);
+    };
   }, [bidId, jobId]);
 
   const routeLabel = job

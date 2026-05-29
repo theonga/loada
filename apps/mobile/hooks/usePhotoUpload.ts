@@ -6,7 +6,10 @@ export type PhotoUploadState =
   | { status: 'idle' }
   | { status: 'picking' }
   | { status: 'uploading'; progress: number }
-  | { status: 'done'; s3Url: string }
+  // `s3Key` is the canonical reference to send to the API (confirmPickup /
+  // confirmDelivery). `previewUrl` is a short-lived presigned URL for the
+  // in-screen <Image> preview only — never persist it.
+  | { status: 'done'; s3Key: string; previewUrl: string }
   | { status: 'error'; message: string };
 
 /**
@@ -57,8 +60,8 @@ export function usePhotoUpload(purpose: string) {
       }
 
       setState({ status: 'uploading', progress: 100 });
-      const { url } = await confirmUpload(s3Key);
-      setState({ status: 'done', s3Url: url });
+      const { s3Key: confirmedKey, url } = await confirmUpload(s3Key);
+      setState({ status: 'done', s3Key: confirmedKey, previewUrl: url });
     } catch (err) {
       setState({
         status: 'error',

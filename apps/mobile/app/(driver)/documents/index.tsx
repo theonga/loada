@@ -101,8 +101,10 @@ export default function DocumentsScreen() {
 
       if (!uploadRes.ok) throw new Error('Upload failed');
 
-      const { url } = await confirmUpload(s3Key);
-      await updateDriverProfile({ [doc.profileField]: url });
+      // Persist the S3 key, not the (1-hour) presigned URL. getMyDriverProfile
+      // returns fresh URLs on every call, so the view stays valid forever.
+      const { s3Key: confirmedKey } = await confirmUpload(s3Key);
+      await updateDriverProfile({ [doc.profileField]: confirmedKey });
       const updated = await getMyDriverProfile();
       setDriver(updated);
     } catch (err) {

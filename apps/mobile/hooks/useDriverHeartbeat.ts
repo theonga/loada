@@ -3,22 +3,36 @@ import * as Location from 'expo-location';
 import { getSocket } from '@services/socket';
 import { useLocationStore } from '@store/location.store';
 import { useAuthStore } from '@store/auth.store';
+import { useJobStore } from '@store/job.store';
 
 const INTERVAL_MS = 8000;
 
+const ACTIVE_JOB_STATUSES = new Set([
+  'MATCHED',
+  'PICKUP_EN_ROUTE',
+  'PICKUP_ARRIVED',
+  'LOADED',
+  'IN_TRANSIT',
+]);
+
 /**
- * When the driver is online, acquires GPS and sends location:update to the
- * /location namespace every 8 seconds. Stops when offline or unmounted.
- * Also registers driver presence on the /jobs namespace for matching queries.
+ * Pushes driver GPS to the server every 8s on the /location namespace.
+ *
+ * Fires when EITHER the driver toggles themselves online (browsing for loads)
+ * OR they have an active job — the shipper's tracking screen must keep updating
+ * even if the driver's online toggle is off.
  */
 export function useDriverHeartbeat() {
   const isOnline = useLocationStore((s) => s.isOnline);
   const setDriverLocation = useLocationStore((s) => s.setDriverLocation);
   const role = useAuthStore((s) => s.role);
+  const activeJobStatus = useJobStore((s) => s.activeJob?.status ?? null);
+  const hasActiveJob = activeJobStatus != null && ACTIVE_JOB_STATUSES.has(activeJobStatus);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    if (role !== 'driver' || !isOnline) {
+    const shouldTrack = role === 'driver' && (isOnline || hasActiveJob);
+    if (!shouldTrack) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -69,5 +83,5 @@ export function useDriverHeartbeat() {
         intervalRef.current = null;
       }
     };
-  }, [isOnline, role]);
+  }, [isOnline, role, hasActiveJob]);
 }

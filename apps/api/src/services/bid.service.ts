@@ -166,6 +166,13 @@ export async function acceptBid(bidId: string, shipperUserId: string) {
     driver: bid.driver,
     bid,
   });
+  // Also notify the matched driver on their personal room — the driver hasn't
+  // subscribed to the job room yet (they had no reason to), so without this
+  // the driver's pending-bid screen would have to poll until the next push.
+  jobsNs.to(`driver:${bid.driverId}`).emit("job:matched", {
+    job: updatedJob,
+    bid,
+  });
 
   const shipperName = updatedJob.shipper.user.name;
 
@@ -218,6 +225,7 @@ export async function rejectBid(bidId: string, shipperUserId: string) {
 
   const { jobsNs } = getSocketServer();
   jobsNs.to(`job:${bid.jobId}`).emit("job:bid_status_updated", { bid: updated });
+  jobsNs.to(`driver:${bid.driverId}`).emit("job:bid_status_updated", { bid: updated });
 
   return updated;
 }
@@ -243,6 +251,7 @@ export async function counterBid(bidId: string, userId: string, newPrice: number
 
   const { jobsNs } = getSocketServer();
   jobsNs.to(`job:${bid.jobId}`).emit("job:bid_status_updated", { bid: updated });
+  jobsNs.to(`driver:${bid.driverId}`).emit("job:bid_status_updated", { bid: updated });
 
   return updated;
 }

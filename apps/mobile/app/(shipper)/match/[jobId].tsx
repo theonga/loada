@@ -13,6 +13,24 @@ import { getJobById, getDriverProfile, getJobBids } from '@services';
 import { isAuthError } from '@services/api';
 import type { Job, DriverProfile, Bid } from '@/types';
 
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function etaToPickupLabel(job: Job | null, driver: DriverProfile | null): string {
+  if (!job || !driver?.lastLocationLat || !driver?.lastLocationLng) return '—';
+  const km = haversineKm(driver.lastLocationLat, driver.lastLocationLng, job.originLat, job.originLng);
+  const minutes = Math.max(1, Math.round((km / 50) * 60));
+  if (minutes >= 60) return `~${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+  return `~${minutes} min`;
+}
+
 export default function ShipperMatchConfirmedScreen() {
   const router = useRouter();
   const { jobId } = useLocalSearchParams<{ jobId: string }>();
@@ -115,7 +133,7 @@ export default function ShipperMatchConfirmedScreen() {
           <View style={styles.detailDivider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>ETA to pickup</Text>
-            <Text style={styles.detailValue}>~12 min</Text>
+            <Text style={styles.detailValue}>{etaToPickupLabel(job, driver)}</Text>
           </View>
         </View>
 

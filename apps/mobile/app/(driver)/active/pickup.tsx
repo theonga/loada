@@ -9,6 +9,7 @@ import { useJobStore } from '@store/job.store';
 import { usePhotoUpload } from '@hooks/usePhotoUpload';
 import { confirmPickup } from '@services';
 import { useEnsureActiveJob } from '@hooks/useEnsureActiveJob';
+import { JobStatus } from '@constants/index';
 
 export default function PickupScreen() {
   const router = useRouter();
@@ -28,8 +29,9 @@ export default function PickupScreen() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      await confirmPickup(job.id, photoReady ? photoState.s3Url : undefined);
-      setActiveJob({ ...job, status: 'IN_TRANSIT' as typeof job.status });
+      await confirmPickup(job.id, photoState.status === 'done' ? photoState.s3Key : undefined);
+      // confirmPickup transitions PICKUP_ARRIVED → IN_TRANSIT server-side
+      setActiveJob({ ...job, status: JobStatus.IN_TRANSIT });
       router.replace('/(driver)/active/in-transit');
     } catch {
       setSubmitError('Failed to confirm pickup. Try again.');
@@ -56,7 +58,7 @@ export default function PickupScreen() {
           disabled={uploading || submitting}
         >
           {photoState.status === 'done' ? (
-            <Image source={{ uri: photoState.s3Url }} style={styles.preview} resizeMode="cover" />
+            <Image source={{ uri: photoState.previewUrl }} style={styles.preview} resizeMode="cover" />
           ) : (
             <View style={styles.cameraPlaceholder}>
               {uploading ? (

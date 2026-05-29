@@ -11,8 +11,52 @@ import { Avatar } from '@components/ui/Avatar';
 import { StatusBadge } from '@components/ui/StatusBadge';
 import { getJobById, getDriverProfile, getJobDirections } from '@services';
 import { useDriverLocation, type DriverPosition } from '@hooks/useDriverLocation';
+import { getSocket } from '@services/socket';
 import { JobStatus } from '@constants/index';
 import type { Job, DriverProfile, RoutePoint } from '@/types';
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function decodePolyline(encoded: string): RoutePoint[] {
+  const result: RoutePoint[] = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b = 0, shift = 0, r = 0;
+    do { b = encoded.charCodeAt(index++) - 63; r |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lat += r & 1 ? ~(r >> 1) : r >> 1;
+    shift = 0; r = 0;
+    do { b = encoded.charCodeAt(index++) - 63; r |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+    lng += r & 1 ? ~(r >> 1) : r >> 1;
+    result.push({ latitude: lat / 1e5, longitude: lng / 1e5 });
+  }
+  return result;
+}
+
+async function fetchRoute(
+  originLat: number, originLng: number,
+  destLat: number, destLng: number,
+): Promise<RoutePoint[]> {
+  const key = process.env.EXPO_PUBLIC_GOOGLE_MAPS_KEY ?? '';
+  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${originLat},${originLng}&destination=${destLat},${destLng}&key=${key}`;
+  const res = await fetch(url);
+  const json = await res.json() as { routes?: Array<{ overview_polyline?: { points: string } }> };
+  const points = json.routes?.[0]?.overview_polyline?.points;
+  if (points) return decodePolyline(points);
+  return [
+    { latitude: originLat, longitude: originLng },
+    { latitude: destLat, longitude: destLng },
+  ];
+}
+
+const POST_PICKUP_STATUSES = new Set<string>(['LOADED', 'IN_TRANSIT']);
 
 export default function TrackingScreen() {
   const router = useRouter();
@@ -21,6 +65,7 @@ export default function TrackingScreen() {
   const [driver, setDriver] = useState<DriverProfile | null>(null);
   const [routePoints, setRoutePoints] = useState<RoutePoint[]>([]);
   const mapRef = useRef<MapView | null>(null);
+  const lastFetchPos = useRef<{ lat: number; lng: number; leg: 'pickup' | 'destination' } | null>(null);
   const C = useColors();
   const styles = useMemo(() => getStyles(C), [C]);
 
@@ -29,18 +74,35 @@ export default function TrackingScreen() {
     getJobById(jobId)
       .then((j) => {
         setJob(j);
-        const tasks: Promise<unknown>[] = [];
         if (j.matchedDriverId) {
-          tasks.push(getDriverProfile(j.matchedDriverId).then(setDriver));
+          getDriverProfile(j.matchedDriverId).then(setDriver).catch(() => {});
         }
-        tasks.push(
-          getJobDirections(jobId)
-            .then(setRoutePoints)
-            .catch(() => {}),
-        );
-        return Promise.all(tasks);
+        // Seed with the static origin→destination polyline so we have something
+        // on screen before the first driver location update arrives.
+        getJobDirections(jobId).then(setRoutePoints).catch(() => {});
       })
       .catch(() => {});
+  }, [jobId]);
+
+  // Listen for status changes (e.g. PICKUP_ARRIVED → IN_TRANSIT) so the polyline
+  // can pivot from "driver → pickup" to "driver → destination" without a reload.
+  useEffect(() => {
+    if (!jobId) return;
+    const socket = getSocket('/jobs');
+    if (!socket.connected) socket.connect();
+    socket.emit('job:subscribe', { jobId });
+
+    const handleStatusChange = (data: { jobId: string; status: string }) => {
+      if (data.jobId !== jobId) return;
+      setJob((prev) => (prev ? { ...prev, status: data.status as Job['status'] } : prev));
+    };
+
+    socket.on('job:status_changed', handleStatusChange);
+
+    return () => {
+      socket.off('job:status_changed', handleStatusChange);
+      socket.emit('job:unsubscribe', { jobId });
+    };
   }, [jobId]);
 
   const livePosition = useDriverLocation(jobId);
@@ -60,6 +122,37 @@ export default function TrackingScreen() {
       { duration: 600 },
     );
   }, [driverPosition?.lat, driverPosition?.lng]);
+
+  // Refetch the polyline for the current leg whenever the driver moves > 300m
+  // or the leg flips (pickup → destination on cargo loaded).
+  useEffect(() => {
+    if (!job || !driverPosition) return;
+    const leg: 'pickup' | 'destination' =
+      POST_PICKUP_STATUSES.has(job.status) ? 'destination' : 'pickup';
+    const target = leg === 'destination'
+      ? { lat: job.destLat, lng: job.destLng }
+      : { lat: job.originLat, lng: job.originLng };
+
+    const last = lastFetchPos.current;
+    if (
+      last &&
+      last.leg === leg &&
+      haversineKm(driverPosition.lat, driverPosition.lng, last.lat, last.lng) < 0.3
+    ) return;
+
+    lastFetchPos.current = { lat: driverPosition.lat, lng: driverPosition.lng, leg };
+
+    fetchRoute(driverPosition.lat, driverPosition.lng, target.lat, target.lng)
+      .then(setRoutePoints)
+      .catch(() => {
+        // Network/Maps failure — fall back to a straight line so the shipper
+        // still sees direction of travel.
+        setRoutePoints([
+          { latitude: driverPosition.lat, longitude: driverPosition.lng },
+          { latitude: target.lat, longitude: target.lng },
+        ]);
+      });
+  }, [job?.id, job?.status, driverPosition?.lat, driverPosition?.lng]);
 
   const etaText = livePosition?.etaSeconds
     ? `${Math.round(livePosition.etaSeconds / 60)} min`

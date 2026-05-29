@@ -31,7 +31,7 @@ export default function JobCompleteScreen() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      await confirmDelivery(job.id, photoState.s3Url, recipient.trim());
+      await confirmDelivery(job.id, photoState.s3Key, recipient.trim());
       setActiveJob(null);
       router.replace('/(driver)/earnings');
     } catch {
@@ -55,7 +55,7 @@ export default function JobCompleteScreen() {
           disabled={uploading || submitting}
         >
           {photoState.status === 'done' ? (
-            <Image source={{ uri: photoState.s3Url }} style={styles.preview} resizeMode="cover" />
+            <Image source={{ uri: photoState.previewUrl }} style={styles.preview} resizeMode="cover" />
           ) : (
             <View style={styles.cameraPlaceholder}>
               {uploading ? (

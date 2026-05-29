@@ -82,8 +82,10 @@ export default function DriverDocumentsScreen() {
 
       if (!uploadRes.ok) throw new Error('Upload failed');
 
-      const { url } = await confirmUpload(s3Key);
-      await updateDriverProfile({ [doc.profileField]: url });
+      // Persist the canonical S3 key, not the (1-hour) presigned URL.
+      // Server-side response serializers refresh URLs on every read.
+      const { s3Key: confirmedKey } = await confirmUpload(s3Key);
+      await updateDriverProfile({ [doc.profileField]: confirmedKey });
 
       setStatuses((prev) => ({ ...prev, [doc.key]: 'done' }));
     } catch (err) {

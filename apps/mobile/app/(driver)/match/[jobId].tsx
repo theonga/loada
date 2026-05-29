@@ -7,7 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useColors, ColorPalette, Typography, Spacing, Radius, Components } from '@constants/theme';
 import { Skeleton } from '@components/ui/Skeleton';
 import { ScreenError } from '@components/ui/ScreenError';
-import { getJobById, updateJobStatus } from '@services';
+import { getJobById, updateJobStatus, getJobBids } from '@services';
 import { isAuthError } from '@services/api';
 import { useJobStore } from '@store/job.store';
 import type { Job } from '@/types';
@@ -18,6 +18,7 @@ export default function DriverMatchConfirmedScreen() {
   const setActiveJob = useJobStore((s) => s.setActiveJob);
   const flash = useRef(new Animated.Value(0.8)).current;
   const [job, setJob] = useState<Job | null>(null);
+  const [agreedPrice, setAgreedPrice] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [navigating, setNavigating] = useState(false);
   const [error, setError] = useState('');
@@ -28,8 +29,14 @@ export default function DriverMatchConfirmedScreen() {
     if (!jobId) return;
     setLoading(true);
     setError('');
-    getJobById(jobId)
-      .then((j) => { setJob(j); setActiveJob(j); setLoading(false); })
+    Promise.all([getJobById(jobId), getJobBids(jobId)])
+      .then(([j, bids]) => {
+        setJob(j);
+        setActiveJob(j);
+        const accepted = bids.find((b) => b.status === 'ACCEPTED');
+        setAgreedPrice(accepted?.offeredPrice ?? j.askingPrice);
+        setLoading(false);
+      })
       .catch((err) => { if (!isAuthError(err)) setError((err as Error).message ?? 'Failed to load job'); setLoading(false); });
   };
 
@@ -105,7 +112,7 @@ export default function DriverMatchConfirmedScreen() {
           <View style={styles.divider} />
           <View style={styles.detailRow}>
             <Text style={styles.detailLabel}>Agreed price</Text>
-            <Text style={styles.priceValue}>${job?.askingPrice ?? '—'}</Text>
+            <Text style={styles.priceValue}>${agreedPrice ?? job?.askingPrice ?? '—'}</Text>
           </View>
           {job?.distanceKm ? (
             <>

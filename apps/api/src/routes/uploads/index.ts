@@ -43,12 +43,19 @@ export async function uploadRoutes(app: FastifyInstance) {
     }
   });
 
-  // After mobile uploads directly to S3, it calls this to get a signed download URL
+  // After mobile uploads directly to S3, it calls this to acknowledge the upload.
+  // We return BOTH:
+  //   - s3Key: the canonical reference to persist in the database
+  //   - url:   a short-lived presigned download URL for immediate preview
+  //
+  // Callers must persist `s3Key` (not `url`) — the URL expires in 1 hour, and
+  // every read path (admin viewer, getPOD, getMyDriverProfile) resolves a fresh
+  // presigned URL on demand from the stored key.
   app.post("/confirm", { preHandler: [requireAuth] }, async (req, reply) => {
     try {
       const { s3Key } = confirmSchema.parse(req.body);
       const url = await getDownloadPresignedUrl(s3Key);
-      return reply.send({ success: true, data: { url } });
+      return reply.send({ success: true, data: { s3Key, url } });
     } catch (err) {
       if (err instanceof ZodError) {
         return reply.status(400).send({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid input", details: err.issues } });

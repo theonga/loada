@@ -498,6 +498,14 @@ export async function updateShipperProfile(fields: { companyName?: string | null
   await api.patch('/shippers/me', fields);
 }
 
+export async function setDriverOnline(lat: number, lng: number): Promise<void> {
+  await api.patch('/drivers/me/online', { lat, lng });
+}
+
+export async function setDriverOffline(): Promise<void> {
+  await api.patch('/drivers/me/offline');
+}
+
 export async function getNearbyDrivers(lat: number, lng: number, radiusKm = 25): Promise<DriverProfile[]> {
   try {
     const data = await api.get<{ drivers: ApiDriverProfile[] }>(
@@ -559,8 +567,17 @@ export async function getPresignedUrl(
   return api.post<{ presignedUrl: string; s3Key: string }>('/uploads/presign', { purpose, mimeType });
 }
 
-export async function confirmUpload(s3Key: string): Promise<{ url: string }> {
-  return api.post<{ url: string }>('/uploads/confirm', { s3Key });
+/**
+ * Acknowledge a completed S3 upload.
+ *
+ * Returns:
+ *   - s3Key: persist THIS in profile / delivery fields. The DB stores the key.
+ *   - url:   a short-lived presigned URL for immediate in-app preview only.
+ *            Do not persist; it expires in 1 hour and the API resolves fresh
+ *            URLs on every read.
+ */
+export async function confirmUpload(s3Key: string): Promise<{ s3Key: string; url: string }> {
+  return api.post<{ s3Key: string; url: string }>('/uploads/confirm', { s3Key });
 }
 
 // ─── Places autocomplete ──────────────────────────────────────────────────────

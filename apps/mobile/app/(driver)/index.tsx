@@ -16,7 +16,7 @@ import { useJobStore } from '@store/job.store';
 import { useWalletStore } from '@store/wallet.store';
 import { JobStatus } from '@constants/index';
 import { useCurrentLocation } from '@hooks/useCurrentLocation';
-import { getAvailableLoads, getWalletBalance } from '@services';
+import { getAvailableLoads, getWalletBalance, setDriverOnline as setDriverOnlineApi, setDriverOffline as setDriverOfflineApi } from '@services';
 import type { Job } from '@/types';
 
 export default function DriverHomeScreen() {
@@ -47,6 +47,25 @@ export default function DriverHomeScreen() {
       .then(setNearbyLoads)
       .catch(() => setNearbyLoads([]));
   }, [isOnline, user?.id]);
+
+  // Toggle online state — local store updates immediately for snappy UI, and
+  // we tell the server in parallel so the admin dashboard / DB isOnline flag
+  // reflects reality. GPS presence in Redis is still maintained by the heartbeat.
+  const handleToggleOnline = async (next: boolean) => {
+    setOnline(next);
+    try {
+      if (next) {
+        const loc = currentLocation ?? driverLocation;
+        if (!loc) return;
+        await setDriverOnlineApi(loc.lat, loc.lng);
+      } else {
+        await setDriverOfflineApi();
+      }
+    } catch {
+      // Server out of sync is non-fatal — the heartbeat reconciles. Don't
+      // bounce the toggle on transient failures or the UI flickers.
+    }
+  };
 
   // Animate to GPS position on first load if the heartbeat hasn't populated driverLocation yet
   useEffect(() => {
@@ -117,7 +136,7 @@ export default function DriverHomeScreen() {
               </Text>
               <Switch
                 value={isOnline}
-                onValueChange={setOnline}
+                onValueChange={handleToggleOnline}
                 trackColor={{ false: C.background.divider, true: C.status.green + '44' }}
                 thumbColor={isOnline ? C.status.green : C.text.tertiary}
               />
