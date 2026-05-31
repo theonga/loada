@@ -6,7 +6,7 @@ function ScSplash() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18 }}>
         <Wordmark size={56}/>
         <div style={{ color: 'var(--text-2)', fontSize: 14, fontWeight: 400, letterSpacing: 0.2 }}>
-          Move more. Wait less.
+          Move Anything. Anytime.
         </div>
       </div>
       <div style={{ padding: '0 20px 60px', textAlign: 'center', color: 'var(--text-3)', fontSize: 11, letterSpacing: 1, textTransform: 'uppercase' }}>

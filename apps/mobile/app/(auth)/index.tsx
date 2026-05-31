@@ -31,7 +31,7 @@ export default function RoleSelectionScreen() {
         <View style={styles.logoArea}>
           <Ionicons name="flash" size={48} color={C.accent} />
           <Text style={styles.brand}>Loada</Text>
-          <Text style={styles.tagline}>Freight. Bid. Move.</Text>
+          <Text style={styles.tagline}>Move Anything. Anytime.</Text>
         </View>
 
         <Text style={styles.heading}>What are you here to do?</Text>
